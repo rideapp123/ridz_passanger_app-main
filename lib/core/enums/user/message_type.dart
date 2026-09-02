@@ -1,0 +1,4 @@
+enum MessageTypeEnum {
+  incoming,
+  outgoing,
+}

@@ -1,0 +1,9 @@
+{
+    "cSpell.words": [
+        "Promocode",
+        "Ridz"
+    ],
+    "files.exclude": {
+        "**/*.g.dart": true
+    },
+}

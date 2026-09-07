@@ -13,16 +13,18 @@ class AnalyticService {
 
   AnalyticService._();
   static AnalyticService? _instance;
-  late Amplitude _analytics;
+  Amplitude? _analytics;
 
   void initialize() {
-    _analytics = Amplitude(Configuration(instanceName: 'project', apiKey: ''));
+    if (AppConfig.amplitudeApiKey.isEmpty) return;
+    _analytics = Amplitude(Configuration(
+        instanceName: 'project', apiKey: AppConfig.amplitudeApiKey));
     // _analytics.init('');
   }
 
   void logEvent(AnalyticEventType event, Map<String, dynamic> eventProperties) {
     if (AppConfig.allFlavor == AppFlavor.production) {
-      _analytics.track(
+      _analytics?.track(
         BaseEvent(event.name),
         EventOptions(
           extra: {

@@ -1,3 +1,5 @@
+import '../../core/theme/ridzs_theme.dart';
+import '../../widgets/buttons/map_control_button.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:ridzs_passenger_app/core/exports/common_exports.dart';
@@ -264,30 +266,12 @@ class MenuButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Positioned(
-      left: 14,
-      top: 50,
-      child: GestureDetector(
-        onTap: () => scaffoldKey.currentState?.openDrawer(),
-        child: Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.secondary.withValues(
-                  alpha: 0.6,
-                ),
-            borderRadius: BorderRadius.circular(12),
-            // boxShadow: [
-            //   BoxShadow(
-            //     color: Colors.black.withValues(alpha: 0.4),
-            //     blurRadius: 8,
-            //     offset: const Offset(0, 2),
-            //   ),
-            // ],
-          ),
-          child: Icon(
-            Icons.menu,
-            color: Theme.of(context).colorScheme.surface,
-          ),
-        ),
+      left: 16,
+      top: MediaQuery.paddingOf(context).top + 12,
+      child: MapControlButton(
+        icon: Icons.menu_rounded,
+        tooltip: 'Open menu',
+        onPressed: () => scaffoldKey.currentState?.openDrawer(),
       ),
     );
   }
@@ -309,14 +293,13 @@ class BottomSectionWidget extends StatelessWidget {
     final mapStore = mapStoreProvider();
 
     return Positioned(
-      bottom: 16,
+      bottom: 0,
       left: 0,
       right: 0,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           const CurrentLocationButton(),
-          const SafetyTripBannerWidget(),
           DestinationSearchWidget(mapStore: mapStore),
         ],
       ),
@@ -334,38 +317,12 @@ class CurrentLocationButton extends StatelessWidget {
 
     return Align(
       alignment: Alignment.centerRight,
-      child: GestureDetector(
-        onTap: () async {
-          await mapStore.moveToCurrentLocation();
-        },
-        child: Container(
-          height: 32,
-          width: 32,
-          alignment: Alignment.center,
-          margin: EdgeInsets.only(
-            right: SizeConfig.screenWidth * 0.04,
-            bottom: SizeConfig.screenHeight * 0.02,
-          ),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.secondary,
-            borderRadius: BorderRadius.circular(4),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.1),
-                blurRadius: 4,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: SvgPicture.asset(
-            Assets.gpsOutlinedIc,
-            height: 20,
-            width: 20,
-            colorFilter: ColorFilter.mode(
-              Theme.of(context).colorScheme.surface,
-              BlendMode.srcIn,
-            ),
-          ),
+      child: Padding(
+        padding: const EdgeInsets.only(right: 16, bottom: 16),
+        child: MapControlButton(
+          icon: Icons.my_location_rounded,
+          tooltip: 'My location',
+          onPressed: () => mapStore.moveToCurrentLocation(),
         ),
       ),
     );
@@ -383,37 +340,33 @@ class DestinationSearchWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.symmetric(
-        vertical: SizeConfig.screenHeight * 0.02,
-        horizontal: SizeConfig.screenWidth * .04,
-      ),
-      margin: EdgeInsets.symmetric(
-        horizontal: SizeConfig.screenWidth * .04,
-        vertical: SizeConfig.screenHeight * 0.01,
-      ),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.secondary,
-        borderRadius: BorderRadius.circular(24),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(height: SizeConfig.screenHeight * 0.02),
-          Text(
-            'Where are you going today?',
-            style: AppTextStyles.style18W500.copyWith(
-              fontWeight: FontWeight.w600,
-              color: Theme.of(context).colorScheme.surface,
+    return Material(
+      color: RidzsTheme.paper(context),
+      elevation: 4,
+      shadowColor: Colors.black.withValues(alpha: .12),
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+      clipBehavior: Clip.antiAlias,
+      child: ConstrainedBox(
+        constraints:
+            BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * .6),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Where to?',
+                    style: Theme.of(context).textTheme.headlineSmall),
+                const SizedBox(height: 16),
+                const SearchDestinationField(),
+                const SizedBox(height: 20),
+                RecentTripsSection(mapStore: mapStore),
+              ],
             ),
           ),
-          SizedBox(height: SizeConfig.screenHeight * 0.02),
-          const SearchDestinationField(),
-          SizedBox(height: SizeConfig.screenHeight * 0.02),
-          RecentTripsSection(mapStore: mapStore),
-        ],
+        ),
       ),
     );
   }
@@ -425,39 +378,20 @@ class SearchDestinationField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => showRideBottomSheet(),
-      child: Container(
-        height: 56,
-        width: double.infinity,
-        padding: EdgeInsets.symmetric(
-          horizontal: SizeConfig.screenWidth * 0.04,
-        ),
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.primaryFixed,
-          borderRadius: BorderRadius.circular(30),
-        ),
-        child: Row(
-          children: [
-            SvgPicture.asset(
-              Assets.searchIc,
-              height: 16,
-              width: 16,
-              colorFilter: ColorFilter.mode(
-                Theme.of(context).colorScheme.surface,
-                BlendMode.srcIn,
-              ),
-            ),
-            SizedBox(width: SizeConfig.screenWidth * 0.02),
-            Text(
-              'Search destinations',
-              style: AppTextStyles.caption.copyWith(
-                color: const Color(0xff9A9CA0),
-                fontSize: 14,
-              ),
-            ),
-          ],
-        ),
+    return OutlinedButton(
+      onPressed: () => showRideBottomSheet(),
+      style: OutlinedButton.styleFrom(
+        backgroundColor: RidzsTheme.ink(context).withValues(alpha: .03),
+        padding: const EdgeInsets.all(16),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.search_rounded, color: RidzsTheme.ink(context), size: 22),
+          const SizedBox(width: 12),
+          const Expanded(child: Text('Search destinations')),
+          Icon(Icons.arrow_forward_rounded,
+              color: RidzsTheme.ink(context), size: 20),
+        ],
       ),
     );
   }

@@ -1,7 +1,7 @@
 import 'package:bot_toast/bot_toast.dart';
 import 'package:flex_color_scheme/flex_color_scheme.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
-import 'package:google_fonts/google_fonts.dart';
+import '../../core/theme/ridzs_theme.dart';
 import 'package:ridzs_passenger_app/core/exports/common_exports.dart';
 import 'package:ridzs_passenger_app/main.dart';
 import 'package:skeletonizer/skeletonizer.dart';
@@ -57,7 +57,7 @@ class _AppState extends State<App> {
             FocusScope.of(context).unfocus();
           },
           child: MaterialApp(
-            theme: FlexThemeData.light(
+            theme: RidzsTheme.refine(FlexThemeData.light(
               scheme: FlexScheme.blumineBlue,
               colorScheme: flexSchemeLight,
               scaffoldBackground: flexSchemeLight.secondary,
@@ -89,9 +89,9 @@ class _AppState extends State<App> {
               visualDensity: FlexColorScheme.comfortablePlatformDensity,
               useMaterial3: true,
               swapLegacyOnMaterial3: true,
-              fontFamily: GoogleFonts.poppins().fontFamily,
-            ),
-            darkTheme: FlexThemeData.dark(
+              fontFamily: 'Poppins',
+            )),
+            darkTheme: RidzsTheme.refine(FlexThemeData.dark(
               scheme: FlexScheme.blumineBlue,
               colorScheme: flexSchemeDark,
               surfaceMode:
@@ -122,8 +122,8 @@ class _AppState extends State<App> {
               visualDensity: FlexColorScheme.comfortablePlatformDensity,
               useMaterial3: true,
               swapLegacyOnMaterial3: true,
-              fontFamily: GoogleFonts.poppins().fontFamily,
-            ),
+              fontFamily: 'Poppins',
+            )),
             themeMode: themeMode,
             title: 'Ridzs',
             debugShowCheckedModeBanner: false,

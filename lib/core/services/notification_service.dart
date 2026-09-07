@@ -47,9 +47,7 @@ class FirebaseNotificationService {
         sound: true,
       );
 
-      await firebaseMessaging.getToken().then((value) {
-        log('Token : : $value');
-      });
+      await firebaseMessaging.getToken();
     } catch (e) {
       // 'Error loading token -> $e'.log();
       log('Error loading token -> $e');

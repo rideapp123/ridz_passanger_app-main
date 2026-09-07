@@ -1,3 +1,4 @@
+import '../../core/theme/ridzs_theme.dart';
 import 'package:flutter/foundation.dart';
 import '../../core/exports/common_exports.dart';
 
@@ -288,8 +289,7 @@ TextFormField customTextFormField({
       scrollPadding: scrollPadding ?? const EdgeInsets.all(20),
       autofocus: autoFocus,
       style: TextStyle(
-          color: inputTextColor ?? Theme.of(context).colorScheme.tertiary,
-          fontSize: 14.0),
+          color: inputTextColor ?? RidzsTheme.ink(context), fontSize: 14.0),
       autovalidateMode: autovalidateMode,
       onTap: onTap,
       controller: controller,
@@ -307,8 +307,8 @@ TextFormField customTextFormField({
         FocusManager.instance.primaryFocus?.unfocus();
       },
       decoration: InputDecoration(
-        floatingLabelStyle: const TextStyle(
-          color: Colors.black,
+        floatingLabelStyle: TextStyle(
+          color: RidzsTheme.ink(context),
         ),
         alignLabelWithHint: false,
         floatingLabelBehavior: FloatingLabelBehavior.always,
@@ -318,33 +318,31 @@ TextFormField customTextFormField({
             Theme.of(context).colorScheme.onTertiaryContainer,
         prefixIconColor: prefixIconColor ??
             Theme.of(context).colorScheme.onTertiaryContainer,
-        contentPadding:
-            contentPadding ?? const EdgeInsets.only(left: 10, right: 10),
+        contentPadding: contentPadding ??
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         fillColor: fillColor,
         filled: fillColor != null,
         border: inputBorder,
         enabledBorder: OutlineInputBorder(
-          borderRadius:
-              const BorderRadius.all(Radius.circular(AppRadius.common10)),
+          borderRadius: RidzsTheme.radius,
           borderSide: BorderSide(
-            color: Theme.of(context).colorScheme.onTertiaryContainer,
+            color: RidzsTheme.line(context),
           ),
         ),
         disabledBorder: OutlineInputBorder(
-          borderRadius:
-              const BorderRadius.all(Radius.circular(AppRadius.common10)),
+          borderRadius: RidzsTheme.radius,
           borderSide: BorderSide(
-            color: Theme.of(context).colorScheme.onTertiaryContainer,
+            color: RidzsTheme.line(context),
           ),
         ),
         focusedBorder: DecoratedInputBorder(
           child: OutlineInputBorder(
             borderSide: BorderSide(
-              color: focusedBorderColor ??
-                  Theme.of(context).colorScheme.onTertiaryContainer,
+              color:
+                  focusedBorderColor ?? Theme.of(context).colorScheme.primary,
               width: borderWidth ?? 2,
             ),
-            borderRadius: Styles.textFieldBorderRadius,
+            borderRadius: RidzsTheme.radius,
           ),
           shadow: const BoxShadow(
             color: Colors.transparent,
@@ -355,10 +353,10 @@ TextFormField customTextFormField({
             color: focusedBorderColor ?? Theme.of(context).colorScheme.error,
             width: borderWidth ?? 2,
           ),
-          borderRadius: Styles.textFieldBorderRadius,
+          borderRadius: RidzsTheme.radius,
         ),
         focusedErrorBorder: OutlineInputBorder(
-          borderRadius: Styles.textFieldBorderRadius,
+          borderRadius: RidzsTheme.radius,
           borderSide: BorderSide(
             color: Colors.red,
             width: borderWidth ?? 2, // Color for focused error border

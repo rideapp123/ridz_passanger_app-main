@@ -1,0 +1,69 @@
+name: Passenger iOS
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        options: [demo, production]
+        default: demo
+      distribute:
+        description: Upload the signed IPA to TestFlight
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: ios-${{ github.event.inputs.environment || 'demo' }}
+  cancel-in-progress: false
+jobs:
+  build:
+    if: vars.IOS_BUILDS_ENABLED == 'true'
+    runs-on: macos-15
+    environment: ${{ github.event.inputs.environment || 'demo' }}
+    env:
+      FLAVOR: ${{ github.event.inputs.environment == 'production' && 'prod' || 'demo' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode 26.2
+        run: sudo xcode-select --switch /Applications/Xcode_26.2.app/Contents/Developer
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.41.2"
+          channel: stable
+          cache: true
+      - run: bash scripts/validate.sh
+      - name: Prepare iOS client configuration
+        env:
+          MOBILE_CLIENT_CONFIG_JSON: ${{ secrets.MOBILE_CLIENT_CONFIG_JSON }}
+          FIREBASE_IOS_CONFIG_BASE64: ${{ secrets.FIREBASE_IOS_CONFIG_BASE64 }}
+          BUILD_NUMBER_BASE: ${{ vars.BUILD_NUMBER_BASE }}
+        run: |
+          python3 scripts/ci_inputs.py ios
+          python3 scripts/mobile_config.py --environment "$FLAVOR" --platform ios --client-config .ci/client.json
+      - name: Install Apple signing credentials
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+        run: python3 scripts/ios_signing.py install
+      - name: Build signed IPA
+        run: flutter build ipa --release --flavor "$FLAVOR" --dart-define-from-file=".ci/$FLAVOR-defines.json" --build-number="$BUILD_NUMBER" --export-options-plist=ios/ExportOptions.plist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: passenger-${{ env.FLAVOR }}-ios-${{ env.BUILD_NUMBER }}
+          path: build/ios/ipa/*.ipa
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload to TestFlight
+        if: inputs.distribute || (github.event_name == 'push' && vars.DEMO_DISTRIBUTION_ENABLED == 'true')
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_PRIVATE_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}
+        run: python3 scripts/ios_signing.py upload
+      - name: Remove signing material
+        if: always()
+        run: python3 scripts/ios_signing.py cleanup

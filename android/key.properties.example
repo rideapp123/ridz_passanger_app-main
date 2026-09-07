@@ -1,0 +1,5 @@
+# Use the keystore registered for the selected app and environment.
+storeFile=/absolute/path/to/the-correct-upload.jks
+storePassword=REPLACE_LOCALLY
+keyAlias=upload
+keyPassword=REPLACE_LOCALLY

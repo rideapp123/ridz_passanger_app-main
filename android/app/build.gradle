@@ -8,10 +8,19 @@ plugins {
     id "dev.flutter.flutter-gradle-plugin"
 }
 def keystoreProperties = new Properties()
-def keystorePropertiesFile = rootProject.file('key.properties')
+def keystorePropertiesFile = rootProject.file(System.getenv("ANDROID_KEY_PROPERTIES") ?: "key.properties")
 if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
+def signingValue = { env, key -> System.getenv(env) ?: keystoreProperties[key] }
+def dartDefines = [:]
+if (project.hasProperty("dart-defines")) {
+    project.property("dart-defines").split(",").each { encoded ->
+        def pair = new String(encoded.decodeBase64(), "UTF-8").split("=", 2)
+        dartDefines[pair[0]] = pair.length == 2 ? pair[1] : ""
+    }
+}
+
 android {
     namespace = "com.ridzs.passenger"
     compileSdk 36
@@ -42,10 +51,11 @@ android {
     }
     signingConfigs {
         release {
-            keyAlias keystoreProperties['keyAlias']
-            keyPassword keystoreProperties['keyPassword']
-            storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
-            storePassword keystoreProperties['storePassword']
+            keyAlias signingValue("ANDROID_KEY_ALIAS", "keyAlias")
+            keyPassword signingValue("ANDROID_KEY_PASSWORD", "keyPassword")
+            def store = signingValue("ANDROID_KEYSTORE_PATH", "storeFile")
+            storeFile store ? file(store) : null
+            storePassword signingValue("ANDROID_KEYSTORE_PASSWORD", "storePassword")
         }
     }
     buildTypes {
@@ -57,23 +67,41 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
-    flavorDimensions "default"
+    flavorDimensions "environment"
     productFlavors {
-        develop {
-            dimension "default"
-            resValue "string", "app_name", "Ridzs-dev"
-//            signingConfig signingConfigs.release
+        local {
+            dimension "environment"
+            applicationIdSuffix ".local"
+            resValue "string", "app_name", "Ridzs Local"
+            manifestPlaceholders = [
+                cleartextTraffic: "true",
+                mapsApiKey: dartDefines["GOOGLE_MAPS_ANDROID_API_KEY"] ?: "",
+                paymentScheme: "com.ridzs.passenger.local.payments",
+                admobAppId: dartDefines["ADMOB_ANDROID_APP_ID"] ?: ""
+            ]
         }
-        staging {
-            dimension "default"
-            resValue "string", "app_name", "Ridzs-staging"
-//            signingConfig signingConfigs.release
+        demo {
+            dimension "environment"
+            applicationIdSuffix ".demo"
+            resValue "string", "app_name", "Ridzs Demo"
+            manifestPlaceholders = [
+                cleartextTraffic: "false",
+                mapsApiKey: dartDefines["GOOGLE_MAPS_ANDROID_API_KEY"] ?: "",
+                paymentScheme: "com.ridzs.passenger.demo.payments",
+                admobAppId: dartDefines["ADMOB_ANDROID_APP_ID"] ?: ""
+            ]
         }
-        production {
-            dimension "default"
+        prod {
+            dimension "environment"
             resValue "string", "app_name", "Ridzs"
-//            signingConfig signingConfigs.release
+            manifestPlaceholders = [
+                cleartextTraffic: "false",
+                mapsApiKey: dartDefines["GOOGLE_MAPS_ANDROID_API_KEY"] ?: "",
+                paymentScheme: "com.ridzs.passenger.payments",
+                admobAppId: dartDefines["ADMOB_ANDROID_APP_ID"] ?: ""
+            ]
         }
+
     }
 }
 
@@ -88,4 +116,20 @@ dependencies {
     implementation 'com.stripe:stripe-android:20.21.0'
     androidTestImplementation 'androidx.test:runner:1.2.0'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.2.0'
+}
+
+gradle.taskGraph.whenReady { graph ->
+    def allowedFlavor = keystoreProperties["allowedFlavor"]
+    if (allowedFlavor && graph.allTasks.any {
+        it.project == project && it.name.toLowerCase().contains("release") &&
+        (it.name.toLowerCase().contains("prod") || it.name.toLowerCase().contains("local"))
+    }) {
+        throw new GradleException("This keystore is restricted to demo builds")
+    }
+    if (graph.allTasks.any { it.project == project && it.name.toLowerCase().contains("release") }) {
+        ["ANDROID_KEY_ALIAS": "keyAlias", "ANDROID_KEY_PASSWORD": "keyPassword",
+         "ANDROID_KEYSTORE_PASSWORD": "storePassword", "ANDROID_KEYSTORE_PATH": "storeFile"].each { env, key ->
+            if (!signingValue(env, key)) throw new GradleException("Release signing requires " + env + " or key.properties " + key)
+        }
+    }
 }

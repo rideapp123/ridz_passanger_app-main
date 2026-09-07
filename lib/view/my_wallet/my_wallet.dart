@@ -1,3 +1,4 @@
+import '../../widgets/containers/balance_summary.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:intl/intl.dart';
 import 'package:ridzs_passenger_app/core/exports/common_exports.dart';
@@ -102,128 +103,13 @@ class MyWallet extends HookWidget {
     required ColorScheme themeColor,
     required Balance balance,
   }) {
-    return Container(
-      height: SizeConfig.screenHeight * 0.12,
-      width: SizeConfig.screenWidth,
-      margin: EdgeInsets.symmetric(
-        horizontal: SizeConfig.screenWidth * 0.04,
-      ),
-      padding: EdgeInsets.symmetric(
-        horizontal: SizeConfig.screenWidth * 0.04,
-      ),
-      decoration: BoxDecoration(
-        color: themeColor.primary,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: themeColor.primary,
-        ),
-        gradient: LinearGradient(
-          colors: [
-            themeColor.primary.withValues(alpha: .8),
-            themeColor.primary.withValues(alpha: .5),
-            themeColor.primary.withValues(alpha: .2),
-            // themeColor.surface,
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-      ),
-      child: Row(
-        children: [
-          //
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                //
-                Text(
-                  'Your Balance',
-                  style: TextStyle(
-                    color: themeColor.tertiary,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-
-                Text(
-                  '\$${balance.balance}',
-                  style: TextStyle(
-                    color: themeColor.tertiary,
-                    fontSize: 24,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          Container(
-            height: SizeConfig.screenHeight * 0.05,
-            width: SizeConfig.screenWidth * 0.003,
-            decoration: BoxDecoration(color: themeColor.primary),
-          ),
-
-          SizedBox(
-            width: SizeConfig.screenWidth * 0.04,
-          ),
-
-          Padding(
-            padding: EdgeInsets.symmetric(
-              horizontal: SizeConfig.screenWidth * 0.02,
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                //
-                GestureDetector(
-                  onTap: () {
-                    // final userStore = userStoreProvider();
-                    // userStore.makeDirectPayment(100);
-                    // userStore.addWalletAmount(100);
-                    NavigationService().navigateTo(
-                      AddTopUpWalletScreen.routeName,
-                    );
-                  },
-                  child: Container(
-                    alignment: Alignment.center,
-                    height: SizeConfig.screenHeight * 0.04,
-                    width: SizeConfig.screenHeight * 0.04,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: themeColor.primaryContainer,
-                    ),
-                    child: Container(
-                      height: SizeConfig.screenHeight * 0.025,
-                      width: SizeConfig.screenHeight * 0.025,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: themeColor.secondary,
-                      ),
-                      child: Icon(
-                        Icons.add,
-                        color: themeColor.primaryContainer,
-                        size: 16,
-                      ),
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 5),
-
-                Text(
-                  'Top up',
-                  style: AppTextStyles.subtitle2.copyWith(
-                    color: themeColor.tertiary,
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+    return BalanceSummary(
+      label: 'Available balance',
+      amount: '\$${balance.balance}',
+      actionLabel: 'Top up wallet',
+      actionIcon: Icons.add,
+      onAction: () =>
+          NavigationService().navigateTo(AddTopUpWalletScreen.routeName),
     );
   }
 
@@ -384,7 +270,7 @@ class MyWallet extends HookWidget {
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
         color: themeColor.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(
           color: themeColor.onPrimaryFixedVariant,
         ),
@@ -396,23 +282,28 @@ class MyWallet extends HookWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                transaction.description,
-                style: TextStyle(
-                  color: themeColor.tertiary,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
+              Expanded(
+                child: Text(
+                  transaction.description,
+                  style: TextStyle(
+                    color: themeColor.tertiary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
-              const SizedBox(height: 5),
-              Text(
-                '${transaction.type == 'credit' ? '+' : '-'}\$${transaction.amount}',
-                style: TextStyle(
-                  color: transaction.type == 'credit'
-                      ? Colors.green
-                      : themeColor.error,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
+              const SizedBox(width: 12),
+              Flexible(
+                child: Text(
+                  '${transaction.type == 'credit' ? '+' : '-'}\$${transaction.amount}',
+                  textAlign: TextAlign.end,
+                  style: TextStyle(
+                    color: transaction.type == 'credit'
+                        ? Colors.green
+                        : themeColor.error,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ],
@@ -425,7 +316,8 @@ class MyWallet extends HookWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Text(
+              Expanded(
+                  child: Text(
                 formattedDate,
                 style: AppTextStyles.style12W500.copyWith(
                   color: isDarkMode
@@ -433,15 +325,20 @@ class MyWallet extends HookWidget {
                       : const Color(0xff9A9A9A),
                   fontSize: 12,
                 ),
-              ),
-              const SizedBox(height: 5),
-              Text(
-                transaction.metadata.paymentId,
-                style: AppTextStyles.style12W500.copyWith(
-                  color: isDarkMode
-                      ? const Color(0xffBABABA)
-                      : const Color(0xff9A9A9A),
-                  fontSize: 12,
+              )),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  transaction.metadata.paymentId,
+                  textAlign: TextAlign.end,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTextStyles.style12W500.copyWith(
+                    color: isDarkMode
+                        ? const Color(0xffBABABA)
+                        : const Color(0xff9A9A9A),
+                    fontSize: 12,
+                  ),
                 ),
               ),
             ],

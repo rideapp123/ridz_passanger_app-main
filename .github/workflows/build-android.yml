@@ -1,0 +1,101 @@
+name: Passenger Android
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        options: [demo, production]
+        default: demo
+      distribute:
+        description: Publish demo APK to Firebase after review
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: android-${{ github.event.inputs.environment || 'demo' }}
+  cancel-in-progress: false
+env:
+  FLUTTER_VERSION: "3.41.2"
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: bash scripts/validate.sh
+  build:
+    needs: quality
+    if: github.event_name != 'pull_request' && vars.MOBILE_BUILDS_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'demo' }}
+    env:
+      FLAVOR: ${{ github.event.inputs.environment == 'production' && 'prod' || 'demo' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - uses: android-actions/setup-android@v3
+      - name: Install Android build components
+        run: sdkmanager "platforms;android-36" "build-tools;35.0.0" "ndk;27.0.12077973"
+      - name: Prepare signing and public client config
+        env:
+          MOBILE_CLIENT_CONFIG_JSON: ${{ secrets.MOBILE_CLIENT_CONFIG_JSON }}
+          FIREBASE_ANDROID_CONFIG_BASE64: ${{ secrets.FIREBASE_ANDROID_CONFIG_BASE64 }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          BUILD_NUMBER_BASE: ${{ vars.BUILD_NUMBER_BASE }}
+        run: python3 scripts/ci_inputs.py android
+      - run: flutter pub get
+      - name: Validate selected environment
+        run: python3 scripts/mobile_config.py --environment "$FLAVOR" --platform android --client-config .ci/client.json
+      - name: Build signed APK and AAB
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ github.workspace }}/.ci/upload.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          flutter build apk --release --flavor "$FLAVOR" --dart-define-from-file=".ci/$FLAVOR-defines.json" --build-number="$BUILD_NUMBER"
+          flutter build appbundle --release --flavor "$FLAVOR" --dart-define-from-file=".ci/$FLAVOR-defines.json" --build-number="$BUILD_NUMBER"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: passenger-${{ env.FLAVOR }}-android-${{ env.BUILD_NUMBER }}
+          path: |
+            build/app/outputs/flutter-apk/*-release.apk
+            build/app/outputs/bundle/*Release/*.aab
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/setup-node@v4
+        if: env.FLAVOR == 'demo' && (inputs.distribute || (github.event_name == 'push' && vars.DEMO_DISTRIBUTION_ENABLED == 'true'))
+        with:
+          node-version: "22"
+      - name: Distribute demo APK
+        if: env.FLAVOR == 'demo' && (inputs.distribute || (github.event_name == 'push' && vars.DEMO_DISTRIBUTION_ENABLED == 'true'))
+        env:
+          FIREBASE_DISTRIBUTION_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_DISTRIBUTION_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_ANDROID_APP_ID: ${{ vars.FIREBASE_ANDROID_APP_ID }}
+          FIREBASE_TESTER_GROUPS: ${{ vars.FIREBASE_TESTER_GROUPS }}
+        run: |
+          python3 scripts/ci_inputs.py firebase
+          npm install --global firebase-tools@14.17.0
+          firebase appdistribution:distribute "build/app/outputs/flutter-apk/app-demo-release.apk" --app "$FIREBASE_ANDROID_APP_ID" --groups "$FIREBASE_TESTER_GROUPS" --release-notes "Commit $GITHUB_SHA; build $BUILD_NUMBER"
+      - name: Clean temporary credentials
+        if: always()
+        run: |
+          rm -rf .ci
+          rm -f "$RUNNER_TEMP/ridzs-firebase-distribution.json"
+          rm -f "android/app/src/$FLAVOR/google-services.json"

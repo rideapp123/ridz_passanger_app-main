@@ -1,20 +1,17 @@
-import 'dart:io';
+import '../../core/theme/ridzs_theme.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-
-import '../../../core/theme/styles.dart';
-import '../text/heading_text.dart';
 
 class CustomOutlinedButton extends StatelessWidget {
   const CustomOutlinedButton({
     super.key,
     this.width = 30,
-    this.height = 45,
+    this.height = 52,
     this.isLoading = false,
     required this.text,
     this.onTap,
-    this.backgroundColor = Colors.white,
+    this.backgroundColor,
     this.textColor,
     this.borderRadius,
     this.hasIcon = false,
@@ -31,7 +28,7 @@ class CustomOutlinedButton extends StatelessWidget {
   final double height;
   final String text;
   final VoidCallback? onTap;
-  final Color backgroundColor;
+  final Color? backgroundColor;
   final Color? foregroundColor;
   final bool isLoading;
   final Color? textColor;
@@ -46,69 +43,68 @@ class CustomOutlinedButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final foreground = textColor ?? foregroundColor ?? RidzsTheme.ink(context);
+    final background = backgroundColor ?? RidzsTheme.paper(context);
     return OutlinedButton(
-      onPressed: () async {
-        if (Platform.isAndroid) {
-          HapticFeedback.heavyImpact();
-        } else {
-          HapticFeedback.lightImpact();
-        }
-
-        onTap?.call();
-      },
+      onPressed: isLoading || onTap == null
+          ? null
+          : () {
+              HapticFeedback.selectionClick();
+              onTap!();
+            },
       style: OutlinedButton.styleFrom(
         minimumSize: Size(width, height),
-        padding: padding,
-        foregroundColor: foregroundColor ?? Styles.COLOR_PRIMARY_ORANGE,
-        backgroundColor:
-            isLoading ? backgroundColor.withValues(alpha: 0.8) : backgroundColor,
+        padding:
+            padding ?? const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        foregroundColor: foreground,
+        backgroundColor: background,
+        disabledForegroundColor: foreground.withValues(alpha: .5),
+        disabledBackgroundColor: background,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(borderRadius ?? 10),
+          borderRadius: BorderRadius.circular(borderRadius ?? 8),
         ),
-        disabledForegroundColor: Colors.transparent.withValues(alpha: 0.38),
-        disabledBackgroundColor: Colors.transparent.withValues(alpha: 0.12),
-        shadowColor: Colors.transparent,
         tapTargetSize: tapTargetSize,
-        animationDuration: const Duration(milliseconds: 1500),
-        side: BorderSide(
-          color: foregroundColor ?? Styles.COLOR_PRIMARY_ORANGE,
-          width: 2.0,
+        side: BorderSide(color: foregroundColor ?? RidzsTheme.line(context)),
+        animationDuration: const Duration(milliseconds: 160),
+        textStyle: TextStyle(
+          fontFamily: 'Poppins',
+          fontSize: fontSize ?? 15,
+          fontWeight: fontWeight ?? FontWeight.w600,
+          height: 1.3,
+          letterSpacing: 0,
         ),
       ),
-      child: child ??
-          (isLoading
-              ? const SizedBox(
-                  height: 20,
-                  width: 20,
-                  child: Center(
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white70,
-                    ),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          ExcludeSemantics(
+            excluding: isLoading,
+            child: Opacity(
+              opacity: isLoading ? 0 : 1,
+              child: child ??
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (hasIcon) Icon(iconData, size: 20),
+                      if (hasIcon) const SizedBox(width: 10),
+                      Flexible(child: Text(text, textAlign: TextAlign.center)),
+                    ],
                   ),
-                )
-              : Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (hasIcon)
-                      Icon(
-                        iconData,
-                        color: textColor ?? Styles.COLOR_PRIMARY_ORANGE,
-                        size: 16,
-                      ),
-                    if (hasIcon)
-                      const SizedBox(
-                        width: 5,
-                      ),
-                    HeadingText(
-                      text: text,
-                      color: textColor ?? Styles.COLOR_PRIMARY_ORANGE,
-                      size: fontSize ?? Styles.TEXT_BODY,
-                      fontWeight: fontWeight ?? FontWeight.normal,
-                    ),
-                  ],
-                )),
+            ),
+          ),
+          if (isLoading)
+            SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: foreground,
+                semanticsLabel: '$text, loading',
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

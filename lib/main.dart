@@ -24,7 +24,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 void main() async {
   runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
-    AppConfig.setAppFlavor();
+    await AppConfig.setAppFlavor();
 
     await setPreferredOrientations();
     setStatusBarColor();
@@ -37,11 +37,11 @@ void main() async {
     }
     tz.initializeTimeZones();
     try {
-      const stripeKey = String.fromEnvironment('STRIPE_PK',
-          defaultValue:
-              'pk_test_51Pyen4P9sQVndu6ghKTndZ4gTTbBgA90QRxLfQhaJmLzCIUmVq0yLmeSIaTVRCzFg5evO7W6F3lqmF0WUTfl55L2003nz67X1P');
-      Stripe.publishableKey = stripeKey;
-      await Stripe.instance.applySettings();
+      if (AppConfig.stripePublishableKey.isNotEmpty) {
+        Stripe.publishableKey = AppConfig.stripePublishableKey;
+        Stripe.urlScheme = AppConfig.paymentUrlScheme;
+        await Stripe.instance.applySettings();
+      }
     } catch (e) {
       log('Failed to initialize Stripe: $e');
     }

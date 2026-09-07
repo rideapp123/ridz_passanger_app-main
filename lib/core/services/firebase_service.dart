@@ -2,8 +2,6 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:ridzs_passenger_app/main.dart';
 
-import '../../firebase_options.dart';
-
 class FirebaseService {
   factory FirebaseService() {
     return _singleton;
@@ -16,9 +14,7 @@ class FirebaseService {
     if (Firebase.apps.isNotEmpty) {
       return;
     }
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
+    await Firebase.initializeApp();
 
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
     await firebaseNotificationService.initializeFirebaseMessaging();

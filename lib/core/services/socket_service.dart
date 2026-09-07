@@ -100,6 +100,7 @@ class SocketService {
       socket = io.io(
         AppConfig.socketUrl,
         io.OptionBuilder()
+            .setPath(AppConfig.socketPath)
             .setTransports(['websocket'])
             .setExtraHeaders({
               'authorization': 'Bearer $accessToken',

@@ -1,9 +1,6 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:ridzs_passenger_app/widgets/containers/custom_image_view.dart';
-import 'package:ridzs_passenger_app/widgets/text/heading_text.dart';
-import '../../../core/theme/styles.dart';
 
 class CustomButton extends StatelessWidget {
   const CustomButton({
@@ -11,7 +8,7 @@ class CustomButton extends StatelessWidget {
     this.text,
     this.onTap,
     this.width,
-    this.height = 50,
+    this.height = 52,
     this.iconHeight = 20,
     this.iconWidth = 20,
     this.iconColor,
@@ -30,7 +27,7 @@ class CustomButton extends StatelessWidget {
     this.iconSize,
     this.iconPath,
     this.shadowColor,
-    this.showShadow = true,
+    this.showShadow = false,
   });
 
   final double? width;
@@ -59,100 +56,89 @@ class CustomButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    bool isSvg = false;
-    if (imageIcon) {
-      isSvg = iconPath?.split('/').last.contains('.svg') ?? false;
-    }
-    return GestureDetector(
-      onTap: () async {
-        if (Platform.isAndroid) {
-          HapticFeedback.heavyImpact();
-        } else {
-          HapticFeedback.lightImpact();
-        }
-        if (isLoading) return;
-        onTap?.call();
-      },
-      child: Container(
-        width: width ?? MediaQuery.of(context).size.width,
-        height: height,
-        decoration: BoxDecoration(
-          color: shadowColor ?? Theme.of(context).colorScheme.onPrimaryFixed,
-          borderRadius: BorderRadius.circular(borderRadius ?? height * 0.3),
-          border: border,
-        ),
-        child: Container(
-          width: width ?? MediaQuery.of(context).size.width * 0.80,
-          height: height * 0.80,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(borderRadius ?? height * 0.20),
-            boxShadow: [
-              if (showShadow)
-                BoxShadow(
-                    color: color ?? Theme.of(context).colorScheme.primary,
-                    spreadRadius: -4,
-                    blurRadius: 4,
-                    offset: const Offset(3, 3)),
-            ],
+    final background =
+        color ?? shadowColor ?? Theme.of(context).colorScheme.primary;
+    final foreground = textColor ??
+        (ThemeData.estimateBrightnessForColor(background) == Brightness.dark
+            ? Colors.white
+            : const Color(0xff070707));
+    final enabled = onTap != null && !isLoading;
+    final label = Row(
+      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        if (imageIcon && iconPath != null)
+          CustomImageView(
+            height: iconHeight,
+            width: iconWidth,
+            color: iconColor ?? foreground,
+            svgPath: iconPath!.toLowerCase().endsWith('.svg') ? iconPath : null,
+            imagePath:
+                iconPath!.toLowerCase().endsWith('.svg') ? null : iconPath,
           ),
-          child: isLoading
-              ? Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: Center(
-                        child: CircularProgressIndicator(
-                          strokeWidth: 3,
-                          color: Theme.of(context).colorScheme.secondary,
-                        ),
-                      ),
-                    ),
-                  ],
-                )
-              : Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (imageIcon)
-                      if (isSvg)
-                        CustomImageView(
-                          height: iconHeight,
-                          width: iconWidth,
-                          color: iconColor ?? textColor ?? Colors.white,
-                          svgPath: iconPath,
-                        )
-                      else
-                        CustomImageView(
-                          imagePath: iconPath,
-                          height: iconHeight,
-                          width: iconWidth,
-                          color: iconColor ?? textColor ?? Colors.white,
-                        ),
-
-                    if (hasIcon)
-                      Icon(
-                        iconData,
-                        color: iconColor ?? textColor ?? Colors.white,
-                        size: iconSize,
-                      ),
-
-                    const SizedBox(
-                      width: 10,
-                    ),
-
-                    //
-                    if (text != null)
-                      HeadingText(
-                        text: text ?? "",
-                        color: textColor ?? Colors.black,
-                        size: fontSize ?? Styles.TEXT_BODY,
-                        fontWeight: fontWeight ?? FontWeight.w700,
-                      ),
-                  ],
+        if (hasIcon)
+          Icon(iconData, color: iconColor ?? foreground, size: iconSize ?? 20),
+        if ((hasIcon || (imageIcon && iconPath != null)) && text != null)
+          const SizedBox(width: 10),
+        if (text != null)
+          Flexible(
+            child: Text(text!, textAlign: TextAlign.center),
+          ),
+      ],
+    );
+    return SizedBox(
+      width: width ?? double.infinity,
+      child: ElevatedButton(
+        onPressed: enabled
+            ? () {
+                HapticFeedback.selectionClick();
+                onTap!();
+              }
+            : null,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: background,
+          foregroundColor: foreground,
+          disabledBackgroundColor:
+              isLoading ? background : background.withValues(alpha: .25),
+          disabledForegroundColor:
+              isLoading ? foreground : foreground.withValues(alpha: .55),
+          minimumSize: Size(48, height),
+          padding: padding ??
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          tapTargetSize: tapTargetSize,
+          elevation: showShadow ? 1 : 0,
+          shadowColor: shadowColor ?? Colors.black.withValues(alpha: .12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(borderRadius ?? 8),
+            side: border?.top ?? BorderSide.none,
+          ),
+          textStyle: TextStyle(
+            fontFamily: 'Poppins',
+            fontSize: fontSize ?? 15,
+            fontWeight: fontWeight ?? FontWeight.w600,
+            height: 1.3,
+            letterSpacing: 0,
+          ),
+        ),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            // Keep the label's layout while loading, including larger text sizes.
+            ExcludeSemantics(
+              excluding: isLoading,
+              child: Opacity(opacity: isLoading ? 0 : 1, child: label),
+            ),
+            if (isLoading)
+              SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: foreground,
+                  semanticsLabel: text == null ? 'Loading' : '$text, loading',
                 ),
+              ),
+          ],
         ),
       ),
     );

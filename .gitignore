@@ -75,3 +75,30 @@ macos/Flutter/ephemeral/
 # Signing keys
 *.jks
 *.keystore
+
+# Environment-specific mobile build inputs and signing credentials
+config/*.json
+!config/environments.json
+!config/*.example.json
+android/key.properties
+*.jks
+*.keystore
+*.p8
+*.p12
+*.mobileprovision
+*.cer
+android/app/google-services.json
+android/app/src/*/google-services.json
+ios/Runner/GoogleService-Info.plist
+ios/config/*/GoogleService-Info.plist
+ios/config/*/Client.xcconfig
+ios/ExportOptions.plist
+ios/signing.xcconfig
+.ci/
+**/*service-account*.json
+**/*service_account*.json
+
+config/legacy-*.plist
+__pycache__/
+android/demo-signing/
+android/.demo-signing-*/

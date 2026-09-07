@@ -1,4 +1,5 @@
 import 'dart:developer';
+import '../core/configs/app_config.dart';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -18,7 +19,6 @@ class AuthService {
   AuthService._();
 
   static AuthService? _instance;
-  static const String _defaultBackendRootUrl = 'http://10.0.2.2:8081';
 
   static Map<String, dynamic> _asMap(dynamic value) {
     if (value is Map<String, dynamic>) return value;
@@ -34,10 +34,7 @@ class AuthService {
     return body;
   }
 
-  static String _backendRootUrl() {
-    const envBaseUrl = String.fromEnvironment('BACKEND_BASE_URL');
-    return envBaseUrl.isNotEmpty ? envBaseUrl : _defaultBackendRootUrl;
-  }
+  static String _backendRootUrl() => AppConfig.apiRootUrl;
 
   static Map<String, dynamic> _normalizeUserJson(Map<String, dynamic> user) {
     final normalized = Map<String, dynamic>.from(user);

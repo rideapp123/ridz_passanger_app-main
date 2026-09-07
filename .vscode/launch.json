@@ -1,33 +1,38 @@
 {
-    // Use IntelliSense to learn about possible attributes.
-    // Hover to view descriptions of existing attributes.
-    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
-    "version": "0.2.0",
-    "configurations": [
-        {
-            "name": "ridz_passanger_app",
-            "request": "launch",
-            "type": "dart",
-            "args": [
-                "--flavor",
-                "develop"
-            ]
-        },
-        {
-            "name": "ridz_passanger_app (profile mode)",
-            "request": "launch",
-            "type": "dart",
-            "flutterMode": "profile"
-        },
-        {
-            "name": "ridz_passanger_app (release mode)",
-            "request": "launch",
-            "type": "dart",
-            "flutterMode": "release",
-            "args": [
-                "--flavor",
-                "production"
-            ]
-        }
-    ]
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "passenger local",
+      "request": "launch",
+      "type": "dart",
+      "args": [
+        "--flavor",
+        "local",
+        "--dart-define-from-file",
+        ".ci/local-defines.json"
+      ]
+    },
+    {
+      "name": "passenger demo",
+      "request": "launch",
+      "type": "dart",
+      "args": [
+        "--flavor",
+        "demo",
+        "--dart-define-from-file",
+        ".ci/demo-defines.json"
+      ]
+    },
+    {
+      "name": "passenger prod",
+      "request": "launch",
+      "type": "dart",
+      "args": [
+        "--flavor",
+        "prod",
+        "--dart-define-from-file",
+        ".ci/prod-defines.json"
+      ]
+    }
+  ]
 }

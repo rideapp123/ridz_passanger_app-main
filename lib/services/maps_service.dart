@@ -1,4 +1,4 @@
-import 'dart:developer';
+import '../core/configs/app_config.dart';
 
 import 'package:dio/dio.dart';
 
@@ -11,8 +11,7 @@ class MapService {
   MapService._();
   static MapService? _instance;
 
-static const String _mapboxToken =
-      String.fromEnvironment('MAPBOX_PUBLIC_TOKEN');
+  static const String _mapboxToken = AppConfig.mapboxPublicToken;
 
   final Dio _dio = Dio();
 
@@ -34,7 +33,6 @@ static const String _mapboxToken =
     final response = await _dio.get(url);
 
     if (response.statusCode == 200) {
-      log('Direction API URL: $url');
       return DirectionResponse.fromJson(response.data);
     } else {
       throw Exception('Failed to load directions');

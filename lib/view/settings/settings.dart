@@ -2,8 +2,8 @@ import 'dart:developer';
 
 import 'package:flex_color_scheme/flex_color_scheme.dart';
 import 'package:ridzs_passenger_app/core/exports/common_exports.dart';
+import '../legal/passenger_legal_links.dart';
 import 'package:ridzs_passenger_app/view/home/app.dart';
-import 'package:ridzs_passenger_app/view/terms_and_condition_screen.dart';
 import 'package:ridzs_passenger_app/widgets/dialogs/app_dialog.dart';
 
 class Settings extends HookWidget {
@@ -265,58 +265,7 @@ class Settings extends HookWidget {
 
                     const SizedBox(height: 10),
 
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 10,
-                      ),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(10),
-                        color: themeColor.surfaceContainerHigh,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.1),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        children: [
-                          InkWell(
-                            onTap: () {
-                              NavigationService().navigateTo(
-                                TermsAndConditionScreen.routeNamed,
-                              );
-                            },
-                            child: DetailsContainer(
-                              iconPath: '',
-                              themeColor: themeColor,
-                              title: 'Terms of Services',
-                            ),
-                          ),
-                          Divider(
-                            thickness: .6,
-                            color: themeColor.tertiaryFixedDim
-                                .withValues(alpha: 0.3),
-                          ),
-                          DetailsContainer(
-                            iconPath: '',
-                            themeColor: themeColor,
-                            title: 'Privacy Policy',
-                          ),
-                          Divider(
-                            thickness: .6,
-                            color: themeColor.tertiaryFixedDim
-                                .withValues(alpha: 0.3),
-                          ),
-                          DetailsContainer(
-                            iconPath: '',
-                            themeColor: themeColor,
-                            title: 'License',
-                          ),
-                        ],
-                      ),
-                    ),
+                    const PassengerLegalMenu(),
                   ],
                 ),
               ),

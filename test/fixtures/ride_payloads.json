@@ -1,0 +1,355 @@
+{
+  "passengerAccepted": {
+    "ride": {
+      "id": "ride-contract",
+      "_id": "ride-contract",
+      "passengerId": "p1",
+      "driverId": "d1",
+      "vehicleType": "economy",
+      "status": "accepted",
+      "version": 7,
+      "pickup": {
+        "latitude": 45,
+        "longitude": -75,
+        "address": "Pickup"
+      },
+      "destination": {
+        "latitude": 45.5,
+        "longitude": -75.5,
+        "address": "Destination"
+      },
+      "distanceInKm": 4.5,
+      "estimatedTimeInMinutes": 10,
+      "fare": {
+        "total": 14.5
+      },
+      "payment": {
+        "method": "card",
+        "status": "authorized",
+        "authorizedAmount": 14.5
+      },
+      "route": {
+        "encoded": "",
+        "waypoints": [
+          45,
+          -75,
+          45.5,
+          -75.5
+        ]
+      },
+      "timestamps": {
+        "requested": "2026-09-12T00:00:00Z"
+      },
+      "cancellation": {},
+      "dispatch": {
+        "state": "searching"
+      },
+      "rating": {},
+      "createdAt": "2026-09-12T00:00:00Z",
+      "updatedAt": "2026-09-12T00:00:00Z",
+      "participant": {
+        "id": "d1",
+        "role": "driver",
+        "displayName": "Test Driver",
+        "photoUrl": "https://example.test/driver.png",
+        "contact": {
+          "canCall": true,
+          "phoneNumber": "+16135550100"
+        }
+      },
+      "vehicle": {
+        "id": "car1",
+        "make": "Test",
+        "model": "Sedan",
+        "color": "White",
+        "licensePlate": "TEST 123"
+      }
+    },
+    "estimatedDistance": 4.5,
+    "estimatedDuration": 10,
+    "timeout": 0,
+    "driverName": "Test Driver",
+    "driverPhoto": "https://example.test/driver.png",
+    "driverMobileNumber": "+16135550100"
+  },
+  "driverAccepted": {
+    "ride": {
+      "id": "ride-contract",
+      "_id": "ride-contract",
+      "passengerId": "p1",
+      "driverId": "d1",
+      "vehicleType": "economy",
+      "status": "accepted",
+      "version": 7,
+      "pickup": {
+        "latitude": 45,
+        "longitude": -75,
+        "address": "Pickup"
+      },
+      "destination": {
+        "latitude": 45.5,
+        "longitude": -75.5,
+        "address": "Destination"
+      },
+      "distanceInKm": 4.5,
+      "estimatedTimeInMinutes": 10,
+      "fare": {
+        "total": 14.5
+      },
+      "payment": {
+        "method": "card",
+        "status": "authorized",
+        "authorizedAmount": 14.5
+      },
+      "route": {
+        "encoded": "",
+        "waypoints": [
+          45,
+          -75,
+          45.5,
+          -75.5
+        ]
+      },
+      "timestamps": {
+        "requested": "2026-09-12T00:00:00Z"
+      },
+      "cancellation": {},
+      "dispatch": {
+        "state": "searching"
+      },
+      "rating": {},
+      "createdAt": "2026-09-12T00:00:00Z",
+      "updatedAt": "2026-09-12T00:00:00Z",
+      "participant": {
+        "id": "p1",
+        "role": "passenger",
+        "displayName": "Test Passenger",
+        "photoUrl": "https://example.test/passenger.png",
+        "contact": {
+          "canCall": true,
+          "phoneNumber": "+16135550101"
+        }
+      },
+      "vehicle": {
+        "id": "car1",
+        "make": "Test",
+        "model": "Sedan",
+        "color": "White",
+        "licensePlate": "TEST 123"
+      }
+    },
+    "estimatedDistance": 4.5,
+    "estimatedDuration": 10,
+    "timeout": 0,
+    "passengerName": "Test Passenger",
+    "passengerPhoto": "https://example.test/passenger.png",
+    "passengerMobileNumber": "+16135550101",
+    "passangerName": "Test Passenger",
+    "passangerMobileNumber": "+16135550101"
+  },
+  "driverOffer": {
+    "ride": {
+      "id": "ride-contract",
+      "_id": "ride-contract",
+      "passengerId": "p1",
+      "driverId": "",
+      "vehicleType": "economy",
+      "status": "searching",
+      "version": 7,
+      "pickup": {
+        "latitude": 45,
+        "longitude": -75,
+        "address": "Pickup"
+      },
+      "destination": {
+        "latitude": 45.5,
+        "longitude": -75.5,
+        "address": "Destination"
+      },
+      "distanceInKm": 4.5,
+      "estimatedTimeInMinutes": 10,
+      "fare": {
+        "total": 14.5
+      },
+      "payment": {
+        "method": "card",
+        "status": "authorized",
+        "authorizedAmount": 14.5
+      },
+      "route": {
+        "encoded": "",
+        "waypoints": [
+          45,
+          -75,
+          45.5,
+          -75.5
+        ]
+      },
+      "timestamps": {
+        "requested": "2026-09-12T00:00:00Z"
+      },
+      "cancellation": {},
+      "dispatch": {
+        "state": "searching"
+      },
+      "rating": {},
+      "createdAt": "2026-09-12T00:00:00Z",
+      "updatedAt": "2026-09-12T00:00:00Z",
+      "participant": {
+        "id": "",
+        "role": "passenger",
+        "displayName": "",
+        "photoUrl": "",
+        "contact": {
+          "canCall": false,
+          "phoneNumber": ""
+        }
+      },
+      "vehicle": {}
+    },
+    "estimatedDistance": 4.5,
+    "estimatedDuration": 10,
+    "timeout": 0,
+    "passengerName": "",
+    "passengerPhoto": "",
+    "passengerMobileNumber": "",
+    "passangerName": "",
+    "passangerMobileNumber": ""
+  },
+  "passengerCompleted": {
+    "ride": {
+      "id": "ride-contract",
+      "_id": "ride-contract",
+      "passengerId": "p1",
+      "driverId": "d1",
+      "vehicleType": "economy",
+      "status": "completed",
+      "version": 7,
+      "pickup": {
+        "latitude": 45,
+        "longitude": -75,
+        "address": "Pickup"
+      },
+      "destination": {
+        "latitude": 45.5,
+        "longitude": -75.5,
+        "address": "Destination"
+      },
+      "distanceInKm": 4.5,
+      "estimatedTimeInMinutes": 10,
+      "fare": {
+        "total": 14.5
+      },
+      "payment": {
+        "method": "card",
+        "status": "authorized",
+        "authorizedAmount": 14.5
+      },
+      "route": {
+        "encoded": "",
+        "waypoints": [
+          45,
+          -75,
+          45.5,
+          -75.5
+        ]
+      },
+      "timestamps": {
+        "requested": "2026-09-12T00:00:00Z"
+      },
+      "cancellation": {},
+      "dispatch": {
+        "state": "searching"
+      },
+      "rating": {},
+      "createdAt": "2026-09-12T00:00:00Z",
+      "updatedAt": "2026-09-12T00:00:00Z",
+      "participant": {
+        "id": "d1",
+        "role": "driver",
+        "displayName": "Test Driver",
+        "photoUrl": "https://example.test/driver.png",
+        "contact": {
+          "canCall": false,
+          "phoneNumber": ""
+        }
+      },
+      "vehicle": {}
+    },
+    "estimatedDistance": 4.5,
+    "estimatedDuration": 10,
+    "timeout": 0,
+    "driverName": "Test Driver",
+    "driverPhoto": "https://example.test/driver.png",
+    "driverMobileNumber": ""
+  },
+  "driverCancelled": {
+    "ride": {
+      "id": "ride-contract",
+      "_id": "ride-contract",
+      "passengerId": "p1",
+      "driverId": "d1",
+      "vehicleType": "economy",
+      "status": "cancelled",
+      "version": 7,
+      "pickup": {
+        "latitude": 45,
+        "longitude": -75,
+        "address": "Pickup"
+      },
+      "destination": {
+        "latitude": 45.5,
+        "longitude": -75.5,
+        "address": "Destination"
+      },
+      "distanceInKm": 4.5,
+      "estimatedTimeInMinutes": 10,
+      "fare": {
+        "total": 14.5
+      },
+      "payment": {
+        "method": "card",
+        "status": "authorized",
+        "authorizedAmount": 14.5
+      },
+      "route": {
+        "encoded": "",
+        "waypoints": [
+          45,
+          -75,
+          45.5,
+          -75.5
+        ]
+      },
+      "timestamps": {
+        "requested": "2026-09-12T00:00:00Z"
+      },
+      "cancellation": {},
+      "dispatch": {
+        "state": "searching"
+      },
+      "rating": {},
+      "createdAt": "2026-09-12T00:00:00Z",
+      "updatedAt": "2026-09-12T00:00:00Z",
+      "participant": {
+        "id": "p1",
+        "role": "passenger",
+        "displayName": "Test Passenger",
+        "photoUrl": "https://example.test/passenger.png",
+        "contact": {
+          "canCall": false,
+          "phoneNumber": ""
+        }
+      },
+      "vehicle": {}
+    },
+    "estimatedDistance": 4.5,
+    "estimatedDuration": 10,
+    "timeout": 0,
+    "passengerName": "Test Passenger",
+    "passengerPhoto": "https://example.test/passenger.png",
+    "passengerMobileNumber": "",
+    "passangerName": "Test Passenger",
+    "passangerMobileNumber": ""
+  }
+}

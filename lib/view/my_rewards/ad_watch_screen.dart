@@ -1,413 +1,208 @@
-import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:ridzs_passenger_app/core/exports/common_exports.dart';
-import 'package:ridzs_passenger_app/core/services/toast_service.dart';
-import 'package:ridzs_passenger_app/services/ride_service.dart';
+import '../../services/ad_reward_flow.dart';
 
 class AdWatchScreen extends StatefulWidget {
   static const String routeNamed = 'AdWatchScreen';
-
-  const AdWatchScreen({
-    super.key,
-    this.rideId,
-  });
-
-  final String? rideId;
-
+  const AdWatchScreen({super.key, this.rideId, this.sessionId, this.flow});
+  final String? rideId, sessionId;
+  final AdRewardFlow? flow;
   @override
   State<AdWatchScreen> createState() => _AdWatchScreenState();
 }
 
-class _AdWatchScreenState extends State<AdWatchScreen> {
-  final RideService _rideService = RideService();
-
-  String? _sessionId;
-  String? _passengerId;
-  RewardedAd? _rewardedAd;
-  num _rewardAmount = 0.25;
-  bool _isLoading = true;
-  bool _isCompleting = false;
-  bool _hasEarnedReward = false;
-  bool _hasCompleted = false;
-  String? _error;
-  String _statusMessage = 'Loading ad...';
+class _AdWatchScreenState extends State<AdWatchScreen>
+    with WidgetsBindingObserver {
+  late final AdRewardFlow _flow;
+  bool _leaving = false;
+  Timer? _clock;
 
   @override
   void initState() {
     super.initState();
-    _beginAdReward();
+    if (widget.flow != null) {
+      _flow = widget.flow!;
+    } else {
+      final store = userStoreProvider();
+      _flow = AdRewardFlow(
+        owner: store.loggedInUser?.id ?? '',
+        sdkUnit: AppConfig.rewardedAdUnitId,
+        ownerReader: () => store.loggedInUser?.id,
+        refreshWallet: store.getWallet,
+      );
+    }
+    _flow.addListener(_changed);
+    WidgetsBinding.instance.addObserver(this);
+    _clock = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted && _flow.retryAfter != null) setState(() {});
+    });
+    unawaited(_flow.initialize(
+        rideId: widget.rideId, resumeSessionId: widget.sessionId));
+  }
+
+  void _changed() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) =>
+      _flow.foreground(state == AppLifecycleState.resumed);
+
+  Future<void> _close() async {
+    if (_leaving) return;
+    setState(() => _leaving = true);
+    final closed = await _flow.close();
+    if (!mounted) return;
+    if (closed && ModalRoute.of(context)?.isCurrent == true) {
+      Navigator.of(context).pop(_flow.active ? _flow.credit : null);
+    } else {
+      setState(() => _leaving = false);
+    }
   }
 
   @override
   void dispose() {
-    _rewardedAd?.dispose();
+    _clock?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    _flow.removeListener(_changed);
+    _flow.dispose();
     super.dispose();
-  }
-
-  Future<void> _beginAdReward() async {
-    try {
-      final offer = await _rideService.getAdRewardOffer(rideId: widget.rideId);
-      final amount = offer['rewardAmount'];
-      final session = await _rideService.startAdReward(rideId: widget.rideId);
-      final sessionId = (session['id'] ?? session['_id'] ?? '').toString();
-      if (sessionId.isEmpty) {
-        throw Exception('Ad reward session was not created');
-      }
-      final passengerId =
-          (session['passengerId'] ?? userStoreProvider().loggedInUser?.id ?? '')
-              .toString();
-      if (passengerId.isEmpty) {
-        throw Exception('Ad reward user was not resolved');
-      }
-      if (!mounted) return;
-      setState(() {
-        _rewardAmount = amount is num ? amount : _rewardAmount;
-        _sessionId = sessionId;
-        _passengerId = passengerId;
-        _statusMessage = 'Preparing ad...';
-      });
-      _loadRewardedAd(sessionId: sessionId, passengerId: passengerId);
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _error = e.toString();
-        _isLoading = false;
-      });
-    }
-  }
-
-  void _loadRewardedAd({
-    required String sessionId,
-    required String passengerId,
-  }) {
-    if (!Platform.isAndroid && !Platform.isIOS) {
-      setState(() {
-        _error = 'Rewarded ads are available on Android and iOS devices.';
-        _isLoading = false;
-      });
-      return;
-    }
-
-    RewardedAd.load(
-      adUnitId: AppConfig.rewardedAdUnitId,
-      request: const AdRequest(),
-      rewardedAdLoadCallback: RewardedAdLoadCallback(
-        onAdLoaded: (ad) {
-          ad.setServerSideOptions(
-            ServerSideVerificationOptions(
-              userId: passengerId,
-              customData: sessionId,
-            ),
-          );
-          ad.fullScreenContentCallback = FullScreenContentCallback<RewardedAd>(
-            onAdShowedFullScreenContent: (_) {
-              if (!mounted) return;
-              setState(() {
-                _statusMessage = 'Ad is playing...';
-                _isLoading = false;
-              });
-            },
-            onAdDismissedFullScreenContent: (ad) {
-              ad.dispose();
-              _rewardedAd = null;
-              if (!_hasEarnedReward && !_hasCompleted) {
-                _cancelReward();
-              }
-            },
-            onAdFailedToShowFullScreenContent: (ad, error) {
-              ad.dispose();
-              _rewardedAd = null;
-              if (!mounted) return;
-              setState(() {
-                _error = 'Ad could not be shown. Please try again.';
-                _isLoading = false;
-              });
-            },
-          );
-          _rewardedAd = ad;
-          if (!mounted) {
-            ad.dispose();
-            return;
-          }
-          setState(() {
-            _statusMessage = 'Opening ad...';
-          });
-          ad.show(
-            onUserEarnedReward: (ad, rewardItem) {
-              _hasEarnedReward = true;
-              _completeReward(
-                rewardItem: rewardItem,
-                adUnitId: AppConfig.rewardedAdUnitId,
-              );
-            },
-          );
-        },
-        onAdFailedToLoad: (error) {
-          if (!mounted) return;
-          setState(() {
-            _error = 'Ad could not be loaded. Please try again.';
-            _isLoading = false;
-          });
-        },
-      ),
-    );
-  }
-
-  Future<void> _completeReward({
-    RewardItem? rewardItem,
-    String? adUnitId,
-  }) async {
-    if (_isCompleting || _hasCompleted || _sessionId == null) return;
-    setState(() {
-      _isCompleting = true;
-      _statusMessage = 'Adding reward...';
-    });
-    try {
-      final result = await _rideService.completeAdReward(
-        _sessionId!,
-        metadata: {
-          if (adUnitId != null) 'adUnitId': adUnitId,
-          if (rewardItem != null) 'rewardAmount': rewardItem.amount,
-          if (rewardItem != null) 'rewardType': rewardItem.type,
-          if (_passengerId != null) 'userId': _passengerId,
-        },
-      );
-      final transaction = result['transaction'];
-      num amount = _rewardAmount;
-      if (transaction is Map && transaction['amount'] is num) {
-        amount = transaction['amount'] as num;
-      }
-      await userStoreProvider().getWallet();
-      if (!mounted) return;
-      setState(() {
-        _hasCompleted = true;
-        _isCompleting = false;
-      });
-      Navigator.of(context).pop(amount);
-    } catch (e) {
-      final verifiedAmount = await _waitForServerVerifiedReward();
-      if (verifiedAmount != null) {
-        await userStoreProvider().getWallet();
-        if (!mounted) return;
-        setState(() {
-          _hasCompleted = true;
-          _isCompleting = false;
-        });
-        Navigator.of(context).pop(verifiedAmount);
-        return;
-      }
-      if (!mounted) return;
-      setState(() {
-        _error = e.toString();
-        _isCompleting = false;
-      });
-    }
-  }
-
-  Future<num?> _waitForServerVerifiedReward() async {
-    final sessionId = _sessionId;
-    if (sessionId == null || sessionId.isEmpty) return null;
-
-    for (var attempt = 0; attempt < 8; attempt++) {
-      await Future.delayed(const Duration(seconds: 2));
-      try {
-        final session = await _rideService.getAdRewardSession(sessionId);
-        if ((session['status'] ?? '').toString().toLowerCase() == 'completed') {
-          final amount = session['rewardAmount'];
-          return amount is num ? amount : _rewardAmount;
-        }
-      } catch (_) {
-        return null;
-      }
-    }
-    return null;
-  }
-
-  Future<void> _cancelReward() async {
-    final sessionId = _sessionId;
-    if (sessionId != null && sessionId.isNotEmpty && !_hasCompleted) {
-      try {
-        await _rideService.cancelAdReward(sessionId);
-      } catch (_) {
-        ToastService.show('Reward could not be cancelled');
-      }
-    }
-    if (!mounted) return;
-    Navigator.of(context).pop();
   }
 
   @override
   Widget build(BuildContext context) {
-    final themeColor = Theme.of(context).colorScheme;
+    final color = Theme.of(context).colorScheme;
+    final phase = _flow.phase;
+    final title = switch (phase) {
+      RewardPhase.loading => 'Preparing advertisement',
+      RewardPhase.playing => 'Advertisement',
+      RewardPhase.pending => 'Awaiting confirmation',
+      RewardPhase.confirmed => 'Reward confirmed',
+      RewardPhase.cancelled => 'Reward cancelled',
+      RewardPhase.expired => 'Reward window ended',
+      RewardPhase.unavailable => 'Rewards unavailable',
+      RewardPhase.review => 'Reward needs review',
+      RewardPhase.ended => 'Session ended',
+    };
+    final detail = switch (phase) {
+      RewardPhase.pending =>
+        'No credit confirmed yet. You can close this screen and check your rewards later.',
+      RewardPhase.confirmed => _flow.walletRefreshFailed
+          ? 'Your reward is confirmed. Wallet balance could not be refreshed.'
+          : 'Your ride credit is in your wallet for a future ride.',
+      RewardPhase.expired =>
+        'No credit has been confirmed. Check once more for a previous confirmation.',
+      RewardPhase.review =>
+        'This reward could not be verified. No new credit is shown.',
+      RewardPhase.ended => 'Sign in again to view your rewards.',
+      RewardPhase.cancelled => 'No ride credit was added.',
+      RewardPhase.unavailable => 'Please try again later.',
+      _ => 'Ride credit is added after server verification.',
+    };
+    final retry = {
+      RewardPhase.pending,
+      RewardPhase.expired,
+      RewardPhase.unavailable,
+      RewardPhase.review
+    }.contains(phase);
     return PopScope(
       canPop: false,
-      onPopInvokedWithResult: (didPop, result) {
-        if (!didPop) {
-          _cancelReward();
-        }
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) unawaited(_close());
       },
       child: Scaffold(
-        backgroundColor: themeColor.secondary,
+        backgroundColor: color.secondary,
+        appBar: AppBar(
+          backgroundColor: color.secondary,
+          title: const Text('Ad reward'),
+          leading: IconButton(
+              tooltip: 'Close',
+              onPressed: _leaving ? null : _close,
+              icon: const Icon(Icons.close)),
+        ),
         body: SafeArea(
-          child: Padding(
-            padding: AppPadding.scaffold,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  children: [
-                    GestureDetector(
-                      onTap: _cancelReward,
-                      child: Container(
-                        height: 32,
-                        width: 32,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: themeColor.onTertiaryFixed,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.close,
-                          size: 18,
-                          color: themeColor.surface,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Text(
-                        'Advertisement',
-                        style: AppTextStyles.style18W500,
-                      ),
-                    ),
-                    Text(
-                      '+\$${_rewardAmount.toStringAsFixed(2)}',
-                      style: AppTextStyles.style15W600.copyWith(
-                        color: themeColor.primary,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-                Expanded(
-                  child: Center(
-                    child: _error != null
-                        ? _buildError(themeColor)
-                        : _buildAdSurface(themeColor),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                if (_error == null)
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(6),
-                        child: LinearProgressIndicator(
-                          minHeight: 8,
-                          color: themeColor.primary,
-                          backgroundColor:
-                              themeColor.tertiary.withValues(alpha: 0.12),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        _statusMessage,
-                        textAlign: TextAlign.center,
-                        style: AppTextStyles.style12W500.copyWith(
-                          color: themeColor.onTertiaryContainer,
-                        ),
-                      ),
-                    ],
-                  ),
-                const SizedBox(height: 16),
-                CustomButton(
-                  text: _error == null ? 'Cancel' : 'Close',
-                  onTap: _cancelReward,
-                  color: themeColor.secondary,
-                  textColor: themeColor.tertiary,
-                  border: Border.all(
-                    color: themeColor.onTertiaryContainer.withValues(alpha: .2),
-                  ),
-                  showShadow: false,
-                ),
+          child: ListView(
+            padding: const EdgeInsets.all(24),
+            children: [
+              Icon(
+                  phase == RewardPhase.confirmed
+                      ? Icons.check_circle_outline
+                      : phase == RewardPhase.pending
+                          ? Icons.schedule
+                          : Icons.play_circle_outline,
+                  size: 56,
+                  color: color.primary),
+              const SizedBox(height: 24),
+              LayoutBuilder(builder: (context, constraints) {
+                var size = 22.0;
+                final base = DefaultTextStyle.of(context).style;
+                final scaler = MediaQuery.textScalerOf(context);
+                final painter = TextPainter(
+                    textDirection: Directionality.of(context),
+                    textScaler: scaler);
+                // Keep long status words intact at accessibility text sizes.
+                while (size > 12) {
+                  var fits = true;
+                  for (final word in title.split(' ')) {
+                    painter.text = TextSpan(
+                        text: word,
+                        style: base.copyWith(
+                            fontSize: size, fontWeight: FontWeight.w600));
+                    painter.layout();
+                    if (painter.width > constraints.maxWidth) fits = false;
+                  }
+                  if (fits) break;
+                  size -= 1;
+                }
+                painter.dispose();
+                return Text(title,
+                    textAlign: TextAlign.center,
+                    style:
+                        TextStyle(fontSize: size, fontWeight: FontWeight.w600));
+              }),
+              const SizedBox(height: 12),
+              if (_flow.active && _flow.session != null) ...[
+                Text(_flow.session!.money,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w600,
+                        color: color.primary)),
                 const SizedBox(height: 12),
               ],
-            ),
+              Text(detail, textAlign: TextAlign.center),
+              if (_flow.message != null && phase != RewardPhase.ended) ...[
+                const SizedBox(height: 12),
+                Text(_flow.message!, textAlign: TextAlign.center),
+              ],
+              const SizedBox(height: 24),
+              if (_flow.busy)
+                const Center(
+                    child: SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2))),
+              if (retry) ...[
+                const SizedBox(height: 16),
+                OutlinedButton.icon(
+                  onPressed: _flow.canRetry && !_leaving ? _flow.retry : null,
+                  icon: const Icon(Icons.refresh),
+                  label: Text(
+                      _flow.retryAfter != null && !_flow.canRetry && !_flow.busy
+                          ? 'Please wait to retry'
+                          : _flow.session == null || _flow.canCancel
+                              ? 'Retry'
+                              : 'Check reward'),
+                ),
+              ],
+              const SizedBox(height: 16),
+              FilledButton(
+                  onPressed: _leaving ? null : _close,
+                  child:
+                      Text(phase == RewardPhase.confirmed ? 'Done' : 'Close')),
+            ],
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildAdSurface(ColorScheme themeColor) {
-    return Container(
-      width: double.infinity,
-      constraints: const BoxConstraints(maxWidth: 420),
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: themeColor.surfaceContainerHighest.withValues(alpha: .55),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: themeColor.onTertiaryContainer.withValues(alpha: .15),
-        ),
-      ),
-      child: AspectRatio(
-        aspectRatio: 9 / 12,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              _isCompleting
-                  ? Icons.account_balance_wallet_rounded
-                  : Icons.play_circle_fill,
-              size: 72,
-              color: themeColor.primary,
-            ),
-            const SizedBox(height: 22),
-            Text(
-              _isLoading ? 'Loading ad...' : 'Rewarded ad',
-              textAlign: TextAlign.center,
-              style: AppTextStyles.style23W600.copyWith(
-                color: themeColor.tertiary,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              'Earn \$${_rewardAmount.toStringAsFixed(2)} for your wallet.',
-              textAlign: TextAlign.center,
-              style: AppTextStyles.style15w400.copyWith(
-                color: themeColor.onTertiaryContainer,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildError(ColorScheme themeColor) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(
-          Icons.error_outline,
-          size: 54,
-          color: themeColor.error,
-        ),
-        const SizedBox(height: 14),
-        Text(
-          'Reward unavailable',
-          style: AppTextStyles.style19W600,
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Please try again later.',
-          textAlign: TextAlign.center,
-          style: AppTextStyles.style15w400.copyWith(
-            color: themeColor.onTertiaryContainer,
-          ),
-        ),
-      ],
     );
   }
 }

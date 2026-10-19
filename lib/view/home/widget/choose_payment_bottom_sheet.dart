@@ -5,7 +5,7 @@ import 'package:skeletonizer/skeletonizer.dart';
 
 class ChoosePaymentBottomSheet extends HookWidget {
   final String selectedCardId;
-  final double totalAmount;
+  final double? totalAmount;
   const ChoosePaymentBottomSheet({
     super.key,
     required this.selectedCardId,
@@ -58,7 +58,8 @@ class ChoosePaymentBottomSheet extends HookWidget {
               return InkWell(
                 onTap: () {
                   if (!isWalletLoading &&
-                      userStore.walletBalance.balance >= totalAmount) {
+                      (totalAmount == null ||
+                          userStore.walletBalance.balance >= totalAmount!)) {
                     isWalletSelected.value = true;
 
                     if (isWalletSelected.value) {
@@ -118,7 +119,8 @@ class ChoosePaymentBottomSheet extends HookWidget {
                               height: 2,
                             ),
                             if (!isWalletLoading &&
-                                userStore.walletBalance.balance < totalAmount)
+                                totalAmount != null &&
+                                userStore.walletBalance.balance < totalAmount!)
                               Text(
                                 'Insufficient Balance',
                                 style: AppTextStyles.style12W500.copyWith(

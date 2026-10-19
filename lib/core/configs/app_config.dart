@@ -4,6 +4,8 @@ import '../enums/app_flavor.dart';
 import 'environment.dart';
 
 abstract class AppConfig {
+  static const bookingQuotesEnabled =
+      bool.fromEnvironment('BOOKING_QUOTES_ENABLED', defaultValue: false);
   static const stripePublishableKey =
       String.fromEnvironment('STRIPE_PUBLISHABLE_KEY');
   static const amplitudeApiKey = String.fromEnvironment('AMPLITUDE_API_KEY');

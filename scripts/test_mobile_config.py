@@ -17,6 +17,13 @@ class MobileConfigTest(unittest.TestCase):
         result = validate(self.registry, self.client, "demo")
         self.assertEqual(result["API_BASE_URL"], self.registry["demo"]["API_BASE_URL"])
 
+    def test_quote_gate_is_explicit_and_demo_only(self):
+        self.assertEqual(validate(self.registry, dict(self.client, BOOKING_QUOTES_ENABLED="true"), "demo")["BOOKING_QUOTES_ENABLED"], "true")
+        with self.assertRaises(ValueError):
+            validate(self.registry, dict(self.client, BOOKING_QUOTES_ENABLED="yes"), "demo")
+        with self.assertRaises(ValueError):
+            validate(self.registry, dict(self.client, ENVIRONMENT="prod", BOOKING_QUOTES_ENABLED="true"), "prod")
+
     def test_rejects_wrong_flavor(self):
         with self.assertRaises(ValueError):
             validate(self.registry, self.client, "prod")

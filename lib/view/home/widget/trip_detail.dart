@@ -11,7 +11,6 @@ import '../../../core/constants/strings_constant.dart';
 import '../../../core/theme/app_text_styles.dart';
 import '../../../stores/map/map_store.dart';
 import '../../../widgets/containers/background_with_shadow_container.dart';
-import '../../widgets/driver_listlite.dart';
 
 class TripDetails extends HookWidget {
   const TripDetails({super.key});
@@ -231,14 +230,7 @@ class TripDetails extends HookWidget {
               const SizedBox(
                 height: 20,
               ),
-              const DriverListTie(
-                profileImage: 'assets/png/profile_image.png',
-                userName: 'Daniel Austin',
-                carModel: 'Mercedes-Benz E-class',
-                rating: 4.4,
-                starRating: 2.5,
-                licensePlate: 'HSW 4736 XK',
-              ),
+              const Text('Driver not assigned'),
               const SizedBox(height: 20),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,

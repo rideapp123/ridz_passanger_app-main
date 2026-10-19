@@ -42,8 +42,15 @@ class PaymentService {
   }
 
   static Future<Map> addCard(SetupIntent setupIntentResult) async {
+    if (setupIntentResult.status != 'Succeeded' &&
+        setupIntentResult.status != 'succeeded') {
+      throw StateError('Card setup has not completed');
+    }
+    if (!RegExp(r'^seti_[A-Za-z0-9]+$').hasMatch(setupIntentResult.id)) {
+      throw StateError('Invalid card setup identifier');
+    }
     final response = await Api().dio.post('/payment/add-card', data: {
-      'setupIntentId': setupIntentResult.paymentMethodId,
+      'setupIntentId': setupIntentResult.id,
     });
 
     final body = _asMap(response.data);
@@ -122,8 +129,8 @@ class PaymentService {
             'userType': balance['userType'] ?? 'passenger',
             'balance': balance['balance'] ?? 0,
             'holdBalance': balance['holdBalance'] ?? 0,
-            'lastUpdated': balance['lastUpdated'] ??
-                DateTime.now().toIso8601String(),
+            'lastUpdated':
+                balance['lastUpdated'] ?? DateTime.now().toIso8601String(),
             '__v': balance['version'] ?? balance['__v'] ?? 0,
           }
         }).balance;
@@ -138,44 +145,36 @@ class PaymentService {
   }
 
   static Future<List<Transaction>> getUserTransaction(int pageNo) async {
-    try {
-      final request = await Api().dio.get(
-            '/wallet/transactions?page=$pageNo&limit=10',
-          );
-      final body = _asMap(request.data);
-      final data = _unwrapData(request.data);
+    final request = await Api().dio.get(
+          '/wallet/transactions?page=$pageNo&limit=10',
+        );
+    final body = _asMap(request.data);
+    final data = _unwrapData(request.data);
 
-      log('Get transaction -> ${request.statusCode}');
-      log('Get transaction -> ${request.data}');
-      if (request.statusCode == 200 && body['success'] != false) {
-        log('Get transaction retrieved successfully');
-        final pagination = _asMap(data['pagination']);
-        final transactions = (data['transactions'] as List? ?? <dynamic>[])
-            .map((e) => _asMap(e))
-            .toList();
-
-        final response = TransactionResponse.fromJson({
-          'success': true,
-          'transactions': transactions
-              .map((tx) => {
-                    ...tx,
-                    '_id': tx['id'] ?? tx['_id'] ?? '',
-                    '__v': tx['version'] ?? tx['__v'] ?? 0,
-                  })
-              .toList(),
-          'total': pagination['total'] ?? transactions.length,
-          'page': pagination['page'] ?? pageNo,
-          'pages': pagination['pages'] ?? 1,
-        });
-        return response.transactions;
-      } else {
-        log('Failed to retrieve transaction: $body');
-        return [];
-      }
-    } catch (e) {
-      log('Error retrieving transaction: $e');
-      return [];
+    log('Get transaction -> ${request.statusCode}');
+    if (request.statusCode != 200 || body['success'] == false) {
+      throw StateError('Transaction history request failed');
     }
+    final rawTransactions = data['transactions'];
+    if (rawTransactions is! List) {
+      throw const FormatException('Transaction history payload is invalid');
+    }
+    final pagination = _asMap(data['pagination']);
+    final transactions = rawTransactions.map((e) => _asMap(e)).toList();
+    final response = TransactionResponse.fromJson({
+      'success': true,
+      'transactions': transactions
+          .map((tx) => {
+                ...tx,
+                '_id': tx['id'] ?? tx['_id'] ?? '',
+                '__v': tx['version'] ?? tx['__v'] ?? 0,
+              })
+          .toList(),
+      'total': pagination['total'] ?? transactions.length,
+      'page': pagination['page'] ?? pageNo,
+      'pages': pagination['pages'] ?? 1,
+    });
+    return response.transactions;
   }
 
   static Future<bool> deleteCard(String cardId) async {

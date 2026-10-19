@@ -8,6 +8,7 @@ import 'package:ridzs_passenger_app/view/home/widget/add_new_card.dart';
 import 'package:ridzs_passenger_app/view/home/widget/drawer_main.dart';
 import 'package:ridzs_passenger_app/view/invite_friends/invite_friends.dart';
 import 'package:ridzs_passenger_app/view/legal/legal.dart';
+import 'package:ridzs_passenger_app/view/legal/regional_information_screen.dart';
 import 'package:ridzs_passenger_app/view/my_rewards/ad_watch_screen.dart';
 import 'package:ridzs_passenger_app/view/my_rewards/my_rewards.dart';
 import 'package:ridzs_passenger_app/view/my_wallet/add_topup_wallet_screen.dart';
@@ -44,6 +45,8 @@ Route<dynamic> generateRoute(RouteSettings settings) {
         Profile.routeNamed => const Profile(),
         CancelTrip.routeNamed => CancelTrip(),
         Legal.routeNamed => const Legal(),
+        RegionalInformationScreen.routeNamed => RegionalInformationScreen(
+            initialSection: RegionalSection.fromArguments(settings.arguments)),
         Notifications.routeNamed => const Notifications(),
         Payments.routeNamed => const Payments(),
         NavigationDrawerMain.routeNamed => const NavigationDrawerMain(),
@@ -64,6 +67,8 @@ Route<dynamic> generateRoute(RouteSettings settings) {
                 ride_model.Ride.unknown(),
           ),
         AdWatchScreen.routeNamed => AdWatchScreen(
+            sessionId: (settings.arguments
+                as Map<String, dynamic>?)?['sessionId'] as String?,
             rideId: (settings.arguments as Map<String, dynamic>?)?['rideId']
                 as String?,
           ),

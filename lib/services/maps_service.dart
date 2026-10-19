@@ -29,7 +29,7 @@ class MapService {
   Future<DirectionResponse> directionAPI(
       String lat1, String long1, String lat2, String long2) async {
     final url =
-        'https://api.mapbox.com/directions/v5/mapbox/cycling/$long1,$lat1;$long2,$lat2?geometries=geojson&access_token=$_mapboxToken';
+        'https://api.mapbox.com/directions/v5/mapbox/driving/$long1,$lat1;$long2,$lat2?geometries=geojson&alternatives=false&radiuses=100;100&access_token=$_mapboxToken';
     final response = await _dio.get(url);
 
     if (response.statusCode == 200) {

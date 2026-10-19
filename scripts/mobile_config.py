@@ -13,7 +13,7 @@ ALLOWED = {
     "ENVIRONMENT", "API_BASE_URL", "SOCKET_BASE_URL", "SOCKET_PATH",
     "STRIPE_PUBLISHABLE_KEY", "MAPBOX_PUBLIC_TOKEN", "AMPLITUDE_API_KEY",
     "SENTRY_DSN", "GOOGLE_MAPS_ANDROID_API_KEY", "GOOGLE_MAPS_IOS_API_KEY",
-    "GOOGLE_WEB_CLIENT_ID",
+    "GOOGLE_WEB_CLIENT_ID", "BOOKING_QUOTES_ENABLED",
 }
 if ROLE == "passenger":
     ALLOWED |= {"ADMOB_ANDROID_APP_ID", "ADMOB_IOS_APP_ID",
@@ -47,6 +47,9 @@ def validate(registry, client, environment):
     require(all(isinstance(v, str) and "\n" not in v and "\r" not in v for v in client.values()),
             "Mobile config values must be single-line strings")
     require(client.get("ENVIRONMENT") == environment, "Client ENVIRONMENT must match native flavor")
+    quotes = client.get("BOOKING_QUOTES_ENABLED", "false")
+    require(quotes in ("true", "false"), "BOOKING_QUOTES_ENABLED must be true or false")
+    require(environment != "prod" or quotes == "false", "Quoted booking is not approved for production rollout")
     entry = registry[environment]
     result = dict(client)
     for key in ("API_BASE_URL", "SOCKET_BASE_URL"):

@@ -26,10 +26,13 @@ enum RideStatus {
   cancelled('cancelled');
 
   static RideStatus? fromString(String value) {
-    return RideStatus.values.firstWhere(
-      (status) => status.title == value,
-      orElse: () => cancelled,
-    );
+    for (final status in RideStatus.values) {
+      if (status.title == value ||
+          (value == 'canceled' && status == cancelled)) {
+        return status;
+      }
+    }
+    return null;
   }
 
   final String title;

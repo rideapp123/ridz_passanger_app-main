@@ -1,6 +1,5 @@
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:mobx/mobx.dart';
 import 'package:ridzs_passenger_app/core/exports/common_exports.dart';
 import 'package:ridzs_passenger_app/core/services/toast_service.dart';
 import 'package:ridzs_passenger_app/models/response/payment/get_card_response.dart';
@@ -8,8 +7,16 @@ import 'package:ridzs_passenger_app/stores/map/map_store.dart';
 import 'package:ridzs_passenger_app/view/home/widget/add_new_card.dart';
 import 'package:ridzs_passenger_app/view/home/widget/choose_payment_bottom_sheet.dart';
 import 'package:ridzs_passenger_app/view/my_rewards/ad_watch_screen.dart';
+import 'package:ridzs_passenger_app/services/service_area_service.dart';
+import 'package:ridzs_passenger_app/view/home/widget/service_area_notice.dart';
 
 import '../../../core/enums/ride.dart';
+import '../../../models/ride/booking_quote.dart';
+import '../../../services/booking_quote_service.dart';
+import '../../../services/ad_reward_service.dart';
+import '../../../models/ad_reward.dart';
+import '../../../core/services/preferences_service.dart';
+import 'booking_quote_sheet.dart';
 
 class ChooseTrip extends HookWidget {
   ChooseTrip({
@@ -28,6 +35,7 @@ class ChooseTrip extends HookWidget {
     final totalDiscountPercentage = useState(0.0);
     final maxDiscountAmount = useState(0.0);
     final isWalletSelected = useState(false);
+    final checkingArea = useState(false);
 
     final selectedCard = useState<CardDetails?>(
       (userStoreProvider().cardList?.cards?.isNotEmpty ?? false)
@@ -42,11 +50,24 @@ class ChooseTrip extends HookWidget {
       }
 
       final rideId = mapStore.currentRide?.ride?.sId;
+      final owner = userStore.loggedInUser?.id;
+      final token = await PreferencesService.getAccessToken();
+      if (owner == null || token == null) return;
+      Future<bool> current() async =>
+          context.mounted &&
+          userStore.loggedInUser?.id == owner &&
+          await PreferencesService.getAccessToken() == token;
       var keepWatching = true;
       while (keepWatching) {
-        if (!context.mounted) {
+        try {
+          final offer = await AdRewardService().offer(token, rideId: rideId);
+          if (!approvedRewardUnit(offer.units, AppConfig.rewardedAdUnitId)) {
+            return;
+          }
+        } catch (_) {
           return;
         }
+        if (!await current() || !context.mounted) return;
 
         final watchAd = await showDialog<bool>(
           context: context,
@@ -74,7 +95,7 @@ class ChooseTrip extends HookWidget {
           },
         );
 
-        if (watchAd != true) {
+        if (watchAd != true || !await current()) {
           return;
         }
 
@@ -83,10 +104,10 @@ class ChooseTrip extends HookWidget {
           arguments: {'rideId': rideId},
         );
 
-        if (rewardAmount is num) {
-          await userStore.getWallet();
+        if (!await current() || !context.mounted) return;
+        if (rewardAmount is AdRewardCredit && rewardAmount.owner == owner) {
           ToastService.show(
-            '\$${rewardAmount.toStringAsFixed(2)} added to wallet',
+            '${rewardAmount.money} reward confirmed',
           );
 
           if (!context.mounted) {
@@ -394,8 +415,12 @@ class ChooseTrip extends HookWidget {
                           const SizedBox(height: 8),
 
                           //
-                          if (userStoreProvider().cardList?.cards?.isNotEmpty ??
-                              false)
+                          if (mapStore.quoteBookingsEnabled ||
+                              (userStoreProvider()
+                                      .cardList
+                                      ?.cards
+                                      ?.isNotEmpty ??
+                                  false))
                             GestureDetector(
                               onTap: () async {
                                 final distance = mapStore.getKilometer(
@@ -433,7 +458,9 @@ class ChooseTrip extends HookWidget {
                                     return ChoosePaymentBottomSheet(
                                       selectedCardId:
                                           selectedCard.value?.id ?? '',
-                                      totalAmount: totalPrice,
+                                      totalAmount: mapStore.quoteBookingsEnabled
+                                          ? null
+                                          : totalPrice,
                                     );
                                   },
                                 );
@@ -641,80 +668,122 @@ class ChooseTrip extends HookWidget {
                   Observer(
                     builder: (_) {
                       return Expanded(
-                        child: CustomButton(
-                          onTap: () async {
-                            if (mapStore.selectedPrice == null) {
-                              ToastService.show('Please select a price');
-                              return;
-                            }
-
-                            try {
-                              final distance = mapStore.getKilometer(
-                                  mapStore.directions?.routes?[0].distance ??
-                                      0.0);
-
-                              double totalPrice = calculateTotalPrice(
-                                distance: distance,
-                                basePrice: mapStore.selectedPrice!.basePrice,
-                                perKm: mapStore.selectedPrice!.perKilometer,
-                                perMin: mapStore.selectedPrice!.perMinute,
-                                serviceCharge:
-                                    mapStore.selectedPrice!.taxes.serviceCharge,
-                                gst: mapStore.selectedPrice!.taxes.gst,
-                              );
-
-                              if (isDiscountApplied.value) {
-                                final discountedPrice = totalPrice -
-                                    (totalPrice *
-                                        totalDiscountPercentage.value /
-                                        100);
-
-                                if (discountedPrice > maxDiscountAmount.value) {
-                                  totalPrice -= maxDiscountAmount.value;
-                                } else {
-                                  totalPrice = discountedPrice;
-                                }
+                        child: Column(children: [
+                          if (mapStore.selectedSuggestionsFrom?.properties
+                                      ?.coordinates?.latitude !=
+                                  null &&
+                              mapStore.selectedSuggestionsFrom?.properties
+                                      ?.coordinates?.longitude !=
+                                  null)
+                            ServiceAreaNotice(
+                              latitude: mapStore.selectedSuggestionsFrom!
+                                  .properties!.coordinates!.latitude!,
+                              longitude: mapStore.selectedSuggestionsFrom!
+                                  .properties!.coordinates!.longitude!,
+                            ),
+                          CustomButton(
+                            onTap: () async {
+                              if (checkingArea.value) return;
+                              if (mapStore.selectedPrice == null) {
+                                ToastService.show('Please select a price');
+                                return;
                               }
 
-                              final result = isWalletSelected.value
-                                  ? true
-                                  : await userStore
-                                      .makeDirectPayment(totalPrice);
-
-                              if (result) {
-                                await mapStore.createRideRequest(
-                                  isWalletSelected.value
-                                      ? PaymentMethod.wallet
-                                      : PaymentMethod.card,
-                                );
-                                await showAdRewardPrompt();
-
-                                runInAction(() {
-                                  mapStore.coordinatesList.clear();
-                                });
-
-                                for (var item in mapStore.tempCoordinatesList) {
-                                  await Future.delayed(
-                                    const Duration(milliseconds: 240),
+                              checkingArea.value = true;
+                              BookingQuoteService? quoteSession;
+                              try {
+                                final pickup = mapStore.selectedSuggestionsFrom
+                                    ?.properties?.coordinates;
+                                if (pickup?.latitude == null ||
+                                    pickup?.longitude == null) {
+                                  ToastService.show('Select a pickup location');
+                                  return;
+                                }
+                                final area = await ServiceAreaService().check(
+                                    pickup!.latitude!, pickup.longitude!);
+                                if (!context.mounted) return;
+                                if (!area.available) {
+                                  ToastService.show(area.reason);
+                                  return;
+                                }
+                                if (!isWalletSelected.value &&
+                                    selectedCard.value == null) {
+                                  ToastService.show(
+                                      'Select a payment card or wallet');
+                                  return;
+                                }
+                                final paymentMethod = isWalletSelected.value
+                                    ? PaymentMethod.wallet
+                                    : PaymentMethod.card;
+                                final cardId = isWalletSelected.value
+                                    ? null
+                                    : selectedCard.value?.id;
+                                BookingQuote? quote;
+                                if (mapStore.quoteBookingsEnabled) {
+                                  quoteSession =
+                                      await mapStore.createQuoteSession();
+                                  if (!context.mounted) return;
+                                  final quoteRequest = mapStore.quoteRequest();
+                                  quote =
+                                      await showModalBottomSheet<BookingQuote>(
+                                    context: context,
+                                    isScrollControlled: true,
+                                    builder: (sheetContext) => ConstrainedBox(
+                                      constraints: BoxConstraints(
+                                          maxHeight:
+                                              MediaQuery.sizeOf(sheetContext)
+                                                      .height *
+                                                  .9),
+                                      child: BookingQuoteSheet(
+                                          service: quoteSession!,
+                                          request: quoteRequest,
+                                          paymentLabel: paymentMethod ==
+                                                  PaymentMethod.wallet
+                                              ? 'Wallet'
+                                              : 'Card ending ${selectedCard.value?.last4 ?? ''}'),
+                                    ),
                                   );
-                                  runInAction(() {
-                                    mapStore.coordinatesList.add(item);
-                                  });
+                                  if (!context.mounted || quote == null) return;
                                 }
-
-                                NavigationService().pop();
+                                final confirmed =
+                                    await mapStore.createRideRequest(
+                                  paymentMethod,
+                                  cardId: cardId,
+                                  quote: quote,
+                                  quoteSession: quoteSession,
+                                );
+                                if (!context.mounted) return;
+                                if (confirmed && !mapStore.noDriversFound) {
+                                  await showAdRewardPrompt();
+                                }
+                                if (!context.mounted) return;
+                                if (confirmed ||
+                                    mapStore.booking.pending.value) {
+                                  NavigationService().pop();
+                                } else {
+                                  ToastService.show(mapStore.error ??
+                                      'Booking was not confirmed');
+                                }
+                              } catch (e) {
+                                ToastService.show(
+                                    'Booking could not be confirmed');
+                              } finally {
+                                if (quoteSession != null) {
+                                  mapStore.endQuoteSession(quoteSession);
+                                }
+                                if (context.mounted) checkingArea.value = false;
                               }
-                            } catch (e) {
-                              NavigationService().pop();
-                              ToastService.show(
-                                  'Error creating ride request: $e');
-                            }
-                          },
-                          text: AppStrings.confirmRide,
-                          isLoading: userStore.isPaymentLoading ||
-                              mapStore.isCreatingRide ||
-                              mapStore.isApplyingPromoCode,
-                        ),
+                            },
+                            text: mapStore.quoteBookingsEnabled
+                                ? 'Review fare'
+                                : AppStrings.confirmRide,
+                            isLoading: checkingArea.value ||
+                                userStore.isPaymentLoading ||
+                                mapStore.isCreatingRide ||
+                                mapStore.booking.busy.value ||
+                                mapStore.isApplyingPromoCode,
+                          ),
+                        ]),
                       );
                     },
                   ),
@@ -976,13 +1045,15 @@ class ChooseTrip extends HookWidget {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(
-                    '\$${price.toStringAsFixed(2)}',
+                    AppConfig.bookingQuotesEnabled
+                        ? 'Pending'
+                        : '\$${price.toStringAsFixed(2)}',
                     style: AppTextStyles.style18W500.copyWith(
                       color: Theme.of(context).colorScheme.tertiary,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  if (price != originalPrice)
+                  if (!AppConfig.bookingQuotesEnabled && price != originalPrice)
                     Text(
                       '\$${originalPrice.toStringAsFixed(2)}',
                       style: AppTextStyles.style18W500.copyWith(

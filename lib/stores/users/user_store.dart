@@ -1,4 +1,6 @@
 import 'dart:async';
+import '../../services/privacy_request_service.dart';
+import '../../services/ad_reward_flow.dart';
 import 'dart:developer';
 
 import 'package:flutter/foundation.dart';
@@ -32,6 +34,7 @@ import 'package:ridzs_passenger_app/widgets/loaders/loader.dart';
 import 'package:ridzs_passenger_app/widgets/loaders/loading_page.dart';
 
 import '../../core/services/navigation_service.dart';
+import '../../core/services/dio_service.dart';
 import '../../models/payment/transaction_response_model.dart';
 import '../../models/response/user/login_response.dart';
 import '../../models/response/user/me_response.dart';
@@ -47,6 +50,8 @@ UserStore userStoreProvider({bool listen = false}) {
 }
 
 abstract class UserStoreBase with Store {
+  int _sessionEpoch = 0;
+  Future<void>? _logoutFlight;
   @observable
   ObservableMap<String, User> userCollection = ObservableMap<String, User>();
 
@@ -184,6 +189,7 @@ abstract class UserStoreBase with Store {
 
   @action
   Future<void> getMe() async {
+    final epoch = _sessionEpoch;
     // final currentUser = loggedInUser;
     // if (currentUser != null) {
     //   AnalyticService().logEvent(AnalyticEventType.login, {
@@ -198,6 +204,7 @@ abstract class UserStoreBase with Store {
     // }
 
     final token = await PreferencesService.getAccessToken();
+    if (epoch != _sessionEpoch) return;
     if (token == null || token.isEmpty) {
       debugPrint('No token found');
       NavigationService().replaceWith(LoadingPage.routeNamed);
@@ -208,6 +215,7 @@ abstract class UserStoreBase with Store {
     try {
       // Uncomment and implement the following lines when AuthService.getMe() is available
       final response = await AuthService.getMe();
+      if (epoch != _sessionEpoch) return;
       meResponse = response;
       setLoggedInUser(response.user);
       AnalyticService().logEvent(AnalyticEventType.login, {
@@ -221,14 +229,16 @@ abstract class UserStoreBase with Store {
       NavigationService().pushNameAndRemoveUntil(MainPage.routeNamed);
     } catch (err) {
       debugPrint('Error in getMe: $err');
+      if (epoch != _sessionEpoch) return;
       NavigationService().replaceWith(LoadingPage.routeNamed);
     } finally {
-      setIsLoginLoading(false);
+      if (epoch == _sessionEpoch) setIsLoginLoading(false);
     }
   }
 
   @action
   Future<void> getMeMainPage() async {
+    final epoch = _sessionEpoch;
     // final currentUser = loggedInUser;
     // if (currentUser != null) {
     //   AnalyticService().logEvent(AnalyticEventType.login, {
@@ -243,6 +253,7 @@ abstract class UserStoreBase with Store {
     // }
 
     final token = await PreferencesService.getAccessToken();
+    if (epoch != _sessionEpoch) return;
     if (token == null || token.isEmpty) {
       debugPrint('No token found');
       NavigationService().replaceWith(LoadingPage.routeNamed);
@@ -253,6 +264,7 @@ abstract class UserStoreBase with Store {
     try {
       // Uncomment and implement the following lines when AuthService.getMe() is available
       final response = await AuthService.getMe();
+      if (epoch != _sessionEpoch) return;
       meResponse = response;
       setLoggedInUser(response.user);
       AnalyticService().logEvent(AnalyticEventType.login, {
@@ -265,9 +277,10 @@ abstract class UserStoreBase with Store {
       unawaited(mapStoreProvider().getPrices());
     } catch (err) {
       debugPrint('Error in getMe: $err');
+      if (epoch != _sessionEpoch) return;
       NavigationService().replaceWith(LoadingPage.routeNamed);
     } finally {
-      setIsLoginLoading(false);
+      if (epoch == _sessionEpoch) setIsLoginLoading(false);
     }
   }
 
@@ -332,16 +345,46 @@ abstract class UserStoreBase with Store {
   }
 
   @action
-  Future<void> logoutUser({bool ignoreApiCall = false}) async {
-    if (!ignoreApiCall) {
-      await AuthService.logOut();
+  Future<void> logoutUser({bool ignoreApiCall = false}) {
+    return _logoutFlight ??=
+        _logoutSession(ignoreApiCall).whenComplete(() => _logoutFlight = null);
+  }
+
+  Future<void> _logoutSession(bool ignoreApiCall) async {
+    _sessionEpoch++;
+    PrivacyRequestService.endAllSessions();
+    AdRewardFlow.endAllSessions();
+    Api().endSession();
+    final wasGoogle = loggedInUser?.authType == AuthProviderType.google;
+    try {
+      await mapStoreProvider().endSession();
+    } catch (_) {
+      // Local sign-out must continue even if secure hint deletion fails.
+    }
+    try {
+      if (!ignoreApiCall) await AuthService.logOut();
+    } catch (_) {
+      // A remote outage must not retain a local authenticated session.
     }
     await PreferencesService.removeAccessToken();
-
-    if (loggedInUser?.authType == AuthProviderType.google) {
-      await GoogleAuthService().signOut();
-    }
     setLoggedInUser(null);
+    meResponse = null;
+    walletBalance = Balance.unknown();
+    transactionList.clear();
+    transactionPageNo = 1;
+    transactionError.value = null;
+    userCollection.clear();
+    searchUserIds.clear();
+    isWalletLoading = false;
+    isTransactionLoading = false;
+    _transactionRefreshPending = false;
+    isAddingCard = false;
+    cardList = null;
+    if (wasGoogle) {
+      try {
+        await GoogleAuthService().signOut();
+      } catch (_) {}
+    }
 
     ToastService.show('Logged out');
     NavigationService().pushNameAndRemoveUntil(LoadingPage.routeNamed);
@@ -409,20 +452,14 @@ abstract class UserStoreBase with Store {
 
   @action
   Future<void> addCard({
-    required String cardNumber,
-    required String cvv,
     required String cardHolderName,
-    required String expiryDate,
   }) async {
+    if (isAddingCard) return;
+    final epoch = _sessionEpoch;
     isAddingCard = true;
     try {
-      // final cardParams = CardDetails(
-      //   number: cardNumber,
-      //   expirationMonth: int.parse(expiryParts[0]),
-      //   expirationYear: int.parse(expiryParts[1]),
-      //   cvc: cvv,
-      // );
       final res = await PaymentService.initStripe();
+      if (epoch != _sessionEpoch) return;
       final clientSecret = res['clientSecret'];
 
       final setupIntentResult = await Stripe.instance.confirmSetupIntent(
@@ -437,35 +474,38 @@ abstract class UserStoreBase with Store {
         ),
       );
 
+      if (epoch != _sessionEpoch) return;
       final addRes = await PaymentService.addCard(setupIntentResult);
+      if (epoch != _sessionEpoch) return;
       NavigationService().pop();
       getCard();
       ToastService.show(addRes['message'] ?? '');
-      if (kDebugMode) {
-        print('addRes --> $addRes');
-      }
     } catch (e) {
-      debugPrint('Error adding in new card: $e');
+      if (epoch != _sessionEpoch) return;
+      debugPrint('Card setup did not complete');
       ToastService.show('Error adding in new card');
     } finally {
-      isAddingCard = false;
+      if (epoch == _sessionEpoch) isAddingCard = false;
     }
   }
 
   @action
   Future<void> getCard() async {
+    final epoch = _sessionEpoch;
     setCardLoading(true);
     try {
       final res = await PaymentService.getCards();
+      if (epoch != _sessionEpoch) return;
       cardList = res;
       log('Length --> ${cardList?.cards?.length ?? 00}');
     } catch (e) {
       debugPrint('Get Card Api Getting Error --> ${e.toString()}');
+      if (epoch != _sessionEpoch) return;
       cardList = null;
       setCardLoading(false);
       // ToastService.show('something want to wrong');
     } finally {
-      setCardLoading(false);
+      if (epoch == _sessionEpoch) setCardLoading(false);
     }
   }
 
@@ -598,18 +638,21 @@ abstract class UserStoreBase with Store {
 
   @action
   Future<void> getWallet() async {
+    final epoch = _sessionEpoch;
     try {
       isWalletLoading = true;
       final result = await PaymentService.getWalletBalance();
+      if (epoch != _sessionEpoch) return;
       if (result == null) return;
       walletBalance = result;
       isWalletLoading = false;
     } catch (e) {
       log('Error getting wallet balance: $e');
+      if (epoch != _sessionEpoch) return;
       ToastService.show('Error getting wallet balance');
       isWalletLoading = false;
     } finally {
-      isWalletLoading = false;
+      if (epoch == _sessionEpoch) isWalletLoading = false;
     }
   }
 
@@ -625,11 +668,18 @@ abstract class UserStoreBase with Store {
   @observable
   List<Transaction> transactionList = [];
 
+  final Observable<String?> transactionError = Observable(null);
+
+  bool _transactionRefreshPending = false;
+
   @action
   Future<void> getTransactionList() async {
+    final epoch = _sessionEpoch;
     try {
       isTransactionLoading = true;
       final result = await PaymentService.getUserTransaction(transactionPageNo);
+      if (epoch != _sessionEpoch) return;
+      transactionError.value = null;
       if (transactionPageNo == 1) {
         transactionList.clear();
       }
@@ -643,10 +693,27 @@ abstract class UserStoreBase with Store {
       }
     } catch (e) {
       log('Error getting transaction list: $e');
-      ToastService.show('Error getting transaction list');
+      if (epoch != _sessionEpoch) return;
+      transactionError.value = 'Transaction history unavailable';
     } finally {
-      isTransactionLoading = false;
+      if (epoch == _sessionEpoch) {
+        isTransactionLoading = false;
+        if (_transactionRefreshPending) {
+          _transactionRefreshPending = false;
+          transactionPageNo = 1;
+          await getTransactionList();
+        }
+      }
     }
+  }
+
+  Future<void> refreshTransactionList() async {
+    if (isTransactionLoading) {
+      _transactionRefreshPending = true;
+      return;
+    }
+    transactionPageNo = 1;
+    await getTransactionList();
   }
 
   @observable

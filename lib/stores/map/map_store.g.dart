@@ -676,12 +676,6 @@ mixin _$MapStore on MapStoreBase, Store {
     });
   }
 
-  @override
-  ObservableFuture<void> loadChatMessage({required String rideId}) {
-    final _$future = super.loadChatMessage(rideId: rideId);
-    return ObservableFuture<void>(_$future, context: context);
-  }
-
   late final _$getPricesAsyncAction =
       AsyncAction('MapStoreBase.getPrices', context: context);
 
@@ -697,15 +691,6 @@ mixin _$MapStore on MapStoreBase, Store {
   Future<void> moveToCurrentLocation() {
     return _$moveToCurrentLocationAsyncAction
         .run(() => super.moveToCurrentLocation());
-  }
-
-  late final _$sendMessageAsyncAction =
-      AsyncAction('MapStoreBase.sendMessage', context: context);
-
-  @override
-  Future<void> sendMessage({required String rideId, required String message}) {
-    return _$sendMessageAsyncAction
-        .run(() => super.sendMessage(rideId: rideId, message: message));
   }
 
   late final _$joinChatRoomAsyncAction =
@@ -859,9 +844,15 @@ mixin _$MapStore on MapStoreBase, Store {
       AsyncAction('MapStoreBase.createRideRequest', context: context);
 
   @override
-  Future<void> createRideRequest(PaymentMethod paymentMethod) {
-    return _$createRideRequestAsyncAction
-        .run(() => super.createRideRequest(paymentMethod));
+  Future<bool> createRideRequest(PaymentMethod paymentMethod,
+      {String? cardId,
+      BookingQuote? quote,
+      BookingQuoteService? quoteSession}) {
+    return _$createRideRequestAsyncAction.run(() => super.createRideRequest(
+        paymentMethod,
+        cardId: cardId,
+        quote: quote,
+        quoteSession: quoteSession));
   }
 
   late final _$addPromoCodeAsyncAction =

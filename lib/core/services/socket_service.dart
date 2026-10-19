@@ -1,4 +1,5 @@
 import 'dart:developer';
+import 'ride_booking_hint.dart';
 import 'package:ridzs_passenger_app/core/services/preferences_service.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import '../../core/services/dio_service.dart';
@@ -22,10 +23,21 @@ typedef ConnectionCallback = void Function();
 class SocketService {
   static final SocketService _instance = SocketService._();
   factory SocketService() => _instance;
-  SocketService._();
+  SocketService._()
+      : _tokenReader = PreferencesService.getAccessToken,
+        _socketFactory = io.io;
+  SocketService.withTransport({
+    Future<String?> Function()? tokenReader,
+    io.Socket Function(String, Map<String, dynamic>)? socketFactory,
+  })  : _tokenReader = tokenReader ?? PreferencesService.getAccessToken,
+        _socketFactory = socketFactory ?? io.io;
+
+  final Future<String?> Function() _tokenReader;
+  final io.Socket Function(String, Map<String, dynamic>) _socketFactory;
 
   late io.Socket socket;
   bool _initialized = false;
+  int _epoch = 0;
 
   NearbyDriversCallback? _onNearbyDrivers;
   RideResponseCallback? _onRideAccepted;
@@ -74,11 +86,16 @@ class SocketService {
     ConnectionCallback? onConnected,
     ConnectionCallback? onDisconnected,
     RideMessageCallback? onMessageReceived,
+    void Function(dynamic)? onRideSync,
+    void Function(dynamic, String)? onBookingSync,
   }) async {
-    if (_initialized) return;
+    final epoch = ++_epoch;
+    if (_initialized) socket.dispose();
+    _initialized = false;
 
     try {
-      String? accessToken = await PreferencesService.getAccessToken();
+      String? accessToken = await _tokenReader();
+      if (epoch != _epoch) return;
       if (accessToken == null) throw Exception('Access token not available');
 
       _setupCallbacks(
@@ -97,7 +114,7 @@ class SocketService {
         onMessageReceived: onMessageReceived,
       );
 
-      socket = io.io(
+      socket = _socketFactory(
         AppConfig.socketUrl,
         io.OptionBuilder()
             .setPath(AppConfig.socketPath)
@@ -107,7 +124,8 @@ class SocketService {
               'x-user-type': 'passenger',
             })
             .setQuery({'token': accessToken, 'userType': 'passenger'})
-            .enableAutoConnect()
+            .enableForceNew()
+            .disableAutoConnect()
             .enableReconnection()
             .setReconnectionAttempts(15)
             .setReconnectionDelay(2000)
@@ -115,9 +133,34 @@ class SocketService {
       );
 
       _setupSocketListeners();
+      socket.on('ride:sync', (data) {
+        if (_initialized && epoch == _epoch) onRideSync?.call(data);
+      });
+      var readingBookingToken = false;
+      socket.on('ride:booking-sync', (data) async {
+        if (!_initialized ||
+            epoch != _epoch ||
+            readingBookingToken ||
+            RideBookingHint.parse(data) == null) {
+          return;
+        }
+        readingBookingToken = true;
+        try {
+          final token = await _tokenReader();
+          if (_initialized && epoch == _epoch && token == accessToken) {
+            onBookingSync?.call(data, accessToken);
+          }
+        } catch (_) {
+          // Resume/reconciliation remains available when local storage fails.
+        } finally {
+          readingBookingToken = false;
+        }
+      });
       _initialized = true;
+      socket.connect();
       log('Socket initialized', name: 'socket');
     } catch (e) {
+      if (epoch != _epoch) return;
       _initialized = false;
       final error = 'Socket initialization failed: $e';
       log(error, name: 'socket');
@@ -179,6 +222,7 @@ class SocketService {
 
     socket.on('nearbyDrivers:found', _handleNearbyDrivers);
     socket.on('ride:rejected', _handleRideRejected);
+    socket.on('ride:cancelled', _handleRideStatus);
     socket.on('ride:driverAssigned', _handleRideAccepted);
     socket.on('ride:driverArrived', _handleRideArrived);
     socket.on('ride:status', _handleRideStatus);
@@ -191,9 +235,13 @@ class SocketService {
     );
     socket.on('chat:typing', _handleTypingStatus);
     socket.on('ride:notification', _handleRideNotification);
+    socket.on(
+        'ride:noDriverFound',
+        (data) => _handleRideNotification(
+            {'type': 'RIDE_NO_DRIVER_FOUND', 'data': data}));
     socket.on('system:notification', _handleSystemNotification);
     socket.on('chat:message', (data) {
-      log('Handle message data: $data', name: 'socket');
+      log('Handle message data', name: 'socket');
       try {
         final message = RideMessage.fromJson(_asMap(data));
         _onMessageReceived?.call(message);
@@ -230,7 +278,7 @@ class SocketService {
 
   void _handleNearbyDrivers(dynamic data) {
     try {
-      log('Handle Driver location update data: $data', name: 'socket');
+      log('Handle Driver location update data', name: 'socket');
       final list = data is List ? data : <dynamic>[];
       final List<DriverLocation> drivers = list.map((driver) {
         final d = _asMap(driver);
@@ -254,7 +302,7 @@ class SocketService {
 
   void _handleRideAccepted(dynamic data) {
     try {
-      log('Handle ride accepted data: $data', name: 'socket');
+      log('Handle ride accepted data', name: 'socket');
       final response = RideRequest.fromJson(data);
       _onRideAccepted?.call(response);
     } catch (e) {
@@ -265,7 +313,7 @@ class SocketService {
 
   void _handleRideStarted(dynamic data) {
     try {
-      log('Handle ride started data: $data', name: 'socket');
+      log('Handle ride started data', name: 'socket');
       final response = RideRequest.fromJson(data);
       _onRideStarted?.call(response);
     } catch (e) {
@@ -306,7 +354,7 @@ class SocketService {
 
   void _handleRideCompleted(dynamic data) {
     try {
-      log('Handle ride completed data: $data', name: 'socket');
+      log('Handle ride completed data', name: 'socket');
       final response = RideRequest.fromJson(data);
       _onRideCompleted?.call(response);
     } catch (e) {
@@ -339,12 +387,19 @@ class SocketService {
 
   void _handleTypingStatus(dynamic data) {
     try {
-      log('Handle typing status data: $data', name: 'socket');
+      log('Handle typing status data', name: 'socket');
       final payload = _asMap(data);
+      final role = payload['user'] ?? payload['by'];
+      final typing = payload['isTyping'] ?? payload['typing'];
+      if (payload['rideId'] is! String ||
+          (role != 'driver' && role != 'passenger') ||
+          typing is! bool) {
+        return;
+      }
       _typingStatus?.call({
-        ...payload,
-        'user': payload['user'] ?? payload['by'],
-        'isTyping': payload['isTyping'] ?? payload['typing'] ?? false,
+        'rideId': payload['rideId'],
+        'user': role,
+        'isTyping': typing,
       });
     } catch (e) {
       log('Error parsing typing status: $e', name: 'socket');
@@ -365,49 +420,28 @@ class SocketService {
   }
 
   Future<void> _handleRideNotification(dynamic raw) async {
+    final epoch = _epoch;
     final payload = _asMap(raw);
     final type = (payload['type'] ?? '').toString();
     final data = _asMap(payload['data']);
     final rideId = (data['rideId'] ?? '').toString();
-    final fallbackStatus =
-        (data['toStatus'] ?? data['status'] ?? '').toString().trim();
-
-    RideRequest? request;
-    if (rideId.isNotEmpty) {
-      request = await _fetchRideRequestById(rideId);
+    if (!const {
+          'RIDE_ACCEPTED',
+          'DRIVER_ARRIVED',
+          'RIDE_STARTED',
+          'RIDE_COMPLETED',
+          'RIDE_CANCELLED',
+          'RIDE_STATUS_UPDATED',
+          'RIDE_REQUESTED',
+          'RIDE_NO_DRIVER_FOUND'
+        }.contains(type) ||
+        rideId.isEmpty) {
+      return;
     }
-    request ??= RideRequest.fromJson({
-      'ride': {
-        '_id': rideId,
-        'status': fallbackStatus.isEmpty ? 'requested' : fallbackStatus,
-      }
-    });
-
-    switch (type) {
-      case 'RIDE_ACCEPTED':
-        _onRideAccepted?.call(request);
-        _onRideStatusUpdate?.call(request);
-        break;
-      case 'DRIVER_ARRIVED':
-        _onRideArrived?.call(request);
-        _onRideStatusUpdate?.call(request);
-        break;
-      case 'RIDE_STARTED':
-        _onRideStarted?.call(request);
-        _onRideStatusUpdate?.call(request);
-        break;
-      case 'RIDE_COMPLETED':
-        _onRideCompleted?.call(request);
-        _onRideStatusUpdate?.call(request);
-        break;
-      case 'RIDE_CANCELLED':
-      case 'RIDE_STATUS_UPDATED':
-      case 'RIDE_REQUESTED':
-        _onRideStatusUpdate?.call(request);
-        break;
-      default:
-        break;
-    }
+    // A notification is a refresh hint, never a fabricated ride snapshot.
+    final request = await _fetchRideRequestById(rideId);
+    if (epoch != _epoch) return;
+    if (request?.ride?.sId == rideId) _onRideStatusUpdate?.call(request!);
   }
 
   void _handleSystemNotification(dynamic raw) {
@@ -427,44 +461,6 @@ class SocketService {
     } catch (e) {
       log('Error getting ride status: $e', name: 'socket');
       _onError?.call('Error while getting ride status');
-    }
-  }
-
-  Future<void> giveFeedback({
-    required String rideId,
-    required String feedback,
-    required int rating,
-  }) async {
-    if (!_checkConnection()) return;
-
-    try {
-      socket.emit('rating:submit', {
-        "rideId": rideId,
-        "rating": rating,
-        "feedback": feedback,
-      });
-      log('Ride feedback sent: $rideId', name: 'socket');
-    } catch (e) {
-      log('Failed to feedback ride: $e', name: 'socket');
-      rethrow;
-    }
-  }
-
-  Future<void> sendMessage({
-    required String rideId,
-    required String message,
-  }) async {
-    if (!_checkConnection()) return;
-
-    try {
-      socket.emit('chat:send', {
-        "rideId": rideId,
-        "message": message,
-      });
-      log('Sending message: $message', name: 'socket');
-    } catch (e) {
-      log('Error sending message: $e', name: 'socket');
-      _onError?.call('Error while sending message');
     }
   }
 
@@ -490,6 +486,7 @@ class SocketService {
     required double longitude,
     double radius = 3.0,
   }) {
+    final epoch = _epoch;
     try {
       if (_initialized && socket.connected) {
         socket.emit('passenger:nearbyDrivers', {
@@ -503,6 +500,7 @@ class SocketService {
         'longitude': longitude,
         'radius': radius,
       }).then((response) {
+        if (epoch != _epoch) return;
         final body = _asMap(response.data);
         final data = body['data'];
         if (data is List) {
@@ -525,11 +523,16 @@ class SocketService {
   }
 
   void dispose() {
+    _epoch++;
     if (_initialized) {
       socket.dispose();
       _initialized = false;
-      _clearCallbacks();
     }
+    _clearCallbacks();
+  }
+
+  void reconnect() {
+    if (_initialized && !socket.connected) socket.connect();
   }
 
   void _clearCallbacks() {

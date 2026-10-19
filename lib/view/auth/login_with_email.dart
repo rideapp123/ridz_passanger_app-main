@@ -1,3 +1,4 @@
+import 'package:ridzs_passenger_app/view/legal/passenger_legal_links.dart';
 import 'package:ridzs_passenger_app/core/exports/common_exports.dart';
 
 class LoginWithEmailScreen extends HookWidget {
@@ -54,51 +55,7 @@ class LoginWithEmailScreen extends HookWidget {
                       hintText: AppStrings.enterYourMail,
                     ),
                     SizedBox(height: SizeConfig.screenHeight * 0.05),
-                    Center(
-                      child: RichText(
-                        textAlign: TextAlign.center,
-                        text: TextSpan(
-                          text: AppStrings.byContinuingYouAgreeToThe,
-                          style: AppTextStyles.link.copyWith(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onTertiaryContainer,
-                          ),
-                          children: [
-                            TextSpan(
-                              text: AppStrings.terms,
-                              style: AppTextStyles.link.copyWith(
-                                color: Theme.of(context).colorScheme.primary,
-                              ),
-                              recognizer: TapGestureRecognizer()..onTap = () {},
-                            ),
-                            TextSpan(
-                              text: ' & \n',
-                              style: AppTextStyles.link.copyWith(
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .onTertiaryContainer,
-                              ),
-                            ),
-                            TextSpan(
-                              text: AppStrings.privacyPolicy,
-                              style: AppTextStyles.link.copyWith(
-                                color: Theme.of(context).colorScheme.primary,
-                              ),
-                              recognizer: TapGestureRecognizer()..onTap = () {},
-                            ),
-                            TextSpan(
-                              text: AppStrings.ofRidz,
-                              style: AppTextStyles.link.copyWith(
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .onTertiaryContainer,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
+                    const Center(child: PassengerLegalLinks()),
                     SizedBox(height: SizeConfig.screenHeight * 0.04),
                     CustomButton(
                       onTap: () async {

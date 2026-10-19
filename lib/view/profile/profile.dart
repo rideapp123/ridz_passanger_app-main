@@ -1,4 +1,5 @@
 import 'package:flutter_mobx/flutter_mobx.dart';
+import 'privacy_request_screen.dart';
 import 'package:ridzs_passenger_app/core/exports/common_exports.dart';
 import 'package:ridzs_passenger_app/view/home/widget/add_new_card.dart';
 
@@ -48,6 +49,13 @@ class Profile extends HookWidget {
                       const SizedBox(height: 14),
 
                       const UserAdditionalInfoView(),
+                    ListTile(
+                      leading: const Icon(Icons.privacy_tip_outlined),
+                      title: const Text('Privacy requests'),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                        builder: (_) => const PrivacyRequestScreen())),
+                    ),
 
                       const SizedBox(height: 20),
 

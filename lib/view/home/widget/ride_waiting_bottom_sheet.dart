@@ -1,5 +1,5 @@
+import 'ride_participant_header.dart';
 import 'package:ridzs_passenger_app/view/home/widget/ride_chat_bottom_sheet.dart';
-import 'package:ridzs_passenger_app/view/home/widget/ride_arriving_bottom_sheet.dart';
 
 import '../../../core/exports/common_exports.dart';
 import '../../../models/common/ride_response/ride_response.dart';
@@ -41,17 +41,21 @@ class RideWaitingBottomSheet extends StatelessWidget {
             height: 4,
             width: SizeConfig.screenWidth * 0.1,
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.onTertiary.withValues(alpha: .2),
+              color: Theme.of(context)
+                  .colorScheme
+                  .onTertiary
+                  .withValues(alpha: .2),
               borderRadius: BorderRadius.circular(24),
             ),
           ),
 
           SizedBox(height: SizeConfig.screenHeight * 0.02),
 
-          DriverInfoBoxWidget(
-            driverName: rideRequest.driverName ?? '',
-            driverImage: rideRequest.driverPhoto ?? '',
-          ),
+          RideParticipantHeader(
+              rideRequest: rideRequest,
+              name: rideRequest.participantLabel,
+              photoUrl: rideRequest.driverPhoto,
+              vehicle: rideRequest.vehicle),
 
           SizedBox(height: SizeConfig.screenHeight * 0.02),
 
@@ -64,7 +68,10 @@ class RideWaitingBottomSheet extends StatelessWidget {
             ),
             decoration: BoxDecoration(
               border: Border.all(
-                color: Theme.of(context).colorScheme.onTertiary.withValues(alpha: .2),
+                color: Theme.of(context)
+                    .colorScheme
+                    .onTertiary
+                    .withValues(alpha: .2),
               ),
               borderRadius: BorderRadius.circular(16),
             ),

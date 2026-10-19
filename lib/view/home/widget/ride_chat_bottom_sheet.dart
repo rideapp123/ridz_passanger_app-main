@@ -1,10 +1,11 @@
+import 'ride_contact_button.dart';
+import '../../safety/ride_safety_screen.dart';
+import 'ride_chat_composer.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:intl/intl.dart';
 import 'package:ridzs_passenger_app/core/exports/common_exports.dart';
 import 'package:ridzs_passenger_app/models/common/ride_response/ride_response.dart';
-import 'package:ridzs_passenger_app/services/debouncer_service.dart';
 import 'package:ridzs_passenger_app/stores/map/map_store.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 class RideChatBottomSheet extends HookWidget {
   final RideRequest rideRequest;
@@ -15,13 +16,9 @@ class RideChatBottomSheet extends HookWidget {
 
   @override
   Widget build(BuildContext context) {
-    final debounce = useMemoized(
-      () => Debouncer(
-        delay: const Duration(milliseconds: 500),
-      ),
-    );
-    final messageController = useTextEditingController();
     final mapStore = mapStoreProvider();
+    final rideId = rideRequest.ride!.sId!;
+    final route = ModalRoute.of(context);
 
     useEffect(() {
       mapStore.loadChatMessage(
@@ -31,7 +28,25 @@ class RideChatBottomSheet extends HookWidget {
       return () {
         mapStore.leaveChatRoom(rideId: rideRequest.ride!.sId!);
       };
-    }, []);
+    }, [mapStore, rideId]);
+
+    useEffect(() {
+      void update(AppLifecycleState? state) {
+        if (state == null || state == AppLifecycleState.resumed) {
+          mapStore.startChatRecovery(rideId,
+              canRead: () => route?.isCurrent ?? true);
+        } else {
+          mapStore.chat.stopRecovery();
+        }
+      }
+
+      final listener = AppLifecycleListener(onStateChange: update);
+      update(WidgetsBinding.instance.lifecycleState);
+      return () {
+        listener.dispose();
+        mapStore.chat.stopRecovery();
+      };
+    }, [mapStore, rideId, route]);
 
     return Padding(
       padding: const EdgeInsets.only(
@@ -100,6 +115,7 @@ class RideChatBottomSheet extends HookWidget {
                             height: SizeConfig.screenHeight * 0.055,
                             width: SizeConfig.screenHeight * 0.055,
                             decoration: BoxDecoration(
+                              color: Theme.of(context).colorScheme.primary,
                               shape: BoxShape.circle,
                               border: Border.all(
                                 color: Theme.of(context).colorScheme.primary,
@@ -114,44 +130,47 @@ class RideChatBottomSheet extends HookWidget {
 
                         SizedBox(width: SizeConfig.screenWidth * 0.02),
 
-                        Text(
-                          rideRequest.driverName ?? '',
+                        Expanded(
+                            child: Text(
+                          rideRequest.participantLabel,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                           style: AppTextStyles.style15w400.copyWith(
                             color: Theme.of(context).colorScheme.surface,
                             fontWeight: FontWeight.w600,
                           ),
-                        ),
+                        )),
                       ],
                     ),
                   ),
 
-                  GestureDetector(
-                    onTap: () {
-                      final number = 'tel:${rideRequest.driverNumber}';
-                      launchUrl(Uri.parse(number));
-                    },
-                    child: Container(
-                      alignment: Alignment.center,
-                      width: SizeConfig.screenWidth * 0.1,
-                      height: SizeConfig.screenWidth * 0.1,
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.primary,
-                        shape: BoxShape.circle,
-                      ),
-                      child: CustomImageView(
-                        svgPath: Assets.phoneIc2,
-                        height: 24,
-                        width: 24,
-                      ),
-                    ),
-                  ),
+                  RideContactButton(uri: rideRequest.contactUri),
+                  IconButton(
+                      tooltip: 'Ride safety',
+                      icon: const Icon(Icons.health_and_safety_outlined),
+                      color: Theme.of(context).colorScheme.error,
+                      onPressed: () => openRideSafety(
+                          context,
+                          rideRequest.ride!.sId!,
+                          mapStore.createSafetySession())),
                 ],
               ),
             ),
 
+            Observer(
+                builder: (_) => RideChatHistoryStatus(
+                      chat: mapStore.chat,
+                      loading: mapStore.isLoadingChatMessage,
+                      foreground: Theme.of(context).colorScheme.surface,
+                      reload: () => mapStore.loadChatMessage(
+                          rideId: rideRequest.ride!.sId!),
+                      older: () => mapStore.loadChatMessage(
+                          rideId: rideRequest.ride!.sId!, older: true),
+                    )),
             //
             Observer(builder: (context) {
-              if (mapStore.isLoadingChatMessage) {
+              if (mapStore.isLoadingChatMessage &&
+                  mapStore.chatMessages.isEmpty) {
                 return Expanded(
                   child: Center(
                     child: CircularProgressIndicator(
@@ -181,53 +200,60 @@ class RideChatBottomSheet extends HookWidget {
                         //
                         if (message.sender == 'passenger') const Spacer(),
 
-                        Container(
-                          padding: EdgeInsets.symmetric(
-                            horizontal: SizeConfig.screenWidth * 0.04,
-                            vertical: SizeConfig.screenHeight * 0.02,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .tertiaryFixedDim
-                                .withValues(alpha: .1),
-                            borderRadius: BorderRadius.only(
-                              topLeft: const Radius.circular(16),
-                              bottomRight: message.sender == 'passenger'
-                                  ? Radius.zero
-                                  : const Radius.circular(16),
-                              bottomLeft: message.sender == 'passenger'
-                                  ? const Radius.circular(16)
-                                  : Radius.zero,
-                              topRight: const Radius.circular(16),
+                        Flexible(
+                          flex: 4,
+                          child: Container(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: SizeConfig.screenWidth * 0.04,
+                              vertical: SizeConfig.screenHeight * 0.02,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .tertiaryFixedDim
+                                  .withValues(alpha: .1),
+                              borderRadius: BorderRadius.only(
+                                topLeft: const Radius.circular(16),
+                                bottomRight: message.sender == 'passenger'
+                                    ? Radius.zero
+                                    : const Radius.circular(16),
+                                bottomLeft: message.sender == 'passenger'
+                                    ? const Radius.circular(16)
+                                    : Radius.zero,
+                                topRight: const Radius.circular(16),
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: message.sender == 'passenger'
+                                  ? CrossAxisAlignment.end
+                                  : CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                //
+                                Text(
+                                  message.message,
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w400,
+                                    color:
+                                        Theme.of(context).colorScheme.surface,
+                                  ),
+                                ),
+
+                                Text(
+                                  formattedDate,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w400,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .tertiaryFixedDim,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          child: Column(
-                            crossAxisAlignment: message.sender == 'passenger'
-                                ? CrossAxisAlignment.end
-                                : CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              //
-                              Text(
-                                message.message,
-                                style: AppTextStyles.style15w400.copyWith(
-                                  color: Theme.of(context).colorScheme.surface,
-                                ),
-                              ),
-
-                              Text(
-                                formattedDate,
-                                style: AppTextStyles.style12w400.copyWith(
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .tertiaryFixedDim,
-                                ),
-                              ),
-                            ],
-                          ),
                         ),
-
                         if (message.sender != 'passenger') const Spacer(),
                       ],
                     );
@@ -272,127 +298,19 @@ class RideChatBottomSheet extends HookWidget {
             }),
 
             //
-            Padding(
-              padding: EdgeInsets.symmetric(
-                vertical: SizeConfig.screenHeight * 0.01,
-              ),
-              child: SizedBox(
-                height: SizeConfig.screenHeight * 0.05,
-                child: ListView.separated(
-                  itemCount: 6,
-                  shrinkWrap: true,
-                  scrollDirection: Axis.horizontal,
-                  padding: EdgeInsets.symmetric(
-                    horizontal: SizeConfig.screenWidth * 0.04,
-                  ),
-                  separatorBuilder: (context, index) {
-                    return SizedBox(width: SizeConfig.screenWidth * 0.02);
-                  },
-                  itemBuilder: (_, index) {
-                    return Container(
-                      alignment: Alignment.center,
-                      padding: EdgeInsets.symmetric(
-                        horizontal: SizeConfig.screenWidth * 0.04,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .tertiaryFixedDim
-                            .withValues(alpha: .1),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Text(
-                        'Okay, I’ll be there in a minute',
-                        style: AppTextStyles.style15w400.copyWith(
-                          color: Theme.of(context).colorScheme.surface,
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ),
-
-            //
-            Divider(
-              color: Theme.of(context)
-                  .colorScheme
-                  .tertiaryFixedDim
-                  .withValues(alpha: .4),
-            ),
-
-            Padding(
-              padding: EdgeInsets.symmetric(
-                horizontal: SizeConfig.screenWidth * 0.04,
-                vertical: SizeConfig.screenHeight * 0.02,
-              ),
-              child: SizedBox(
-                height: 44,
-                child: TextField(
-                  controller: messageController,
-                  onChanged: (value) {
-                    if (value.isNotEmpty) {
-                      mapStore.sendTypingNotification(
-                        rideId: rideRequest.ride!.sId!,
-                        isTyping: true,
-                      );
-                    }
-                    debounce.run(() {
-                      mapStore.sendTypingNotification(
-                        rideId: rideRequest.ride!.sId!,
-                        isTyping: false,
-                      );
-                    });
-                  },
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.surface,
-                  ),
-                  decoration: InputDecoration(
-                    contentPadding: EdgeInsets.symmetric(
-                      horizontal: SizeConfig.screenWidth * 0.04,
-                      vertical: 8,
-                    ),
-                    hintText: 'Type a message...',
-                    hintStyle: TextStyle(
-                      color: Theme.of(context).colorScheme.tertiaryFixedDim,
-                    ),
-                    fillColor: Theme.of(context).colorScheme.onSecondary,
-                    filled: true,
-                    suffixIcon: IconButton(
-                      onPressed: () {
-                        if (messageController.text.isEmpty) return;
-                        mapStore.sendMessage(
-                          rideId: rideRequest.ride!.sId!,
-                          message: messageController.text,
-                        );
-
-                        messageController.clear();
-                      },
-                      icon: Icon(
-                        Icons.send,
-                        size: 20,
-                        color: Theme.of(context).colorScheme.tertiaryFixedDim,
-                      ),
-                    ),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide.none,
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide.none,
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: BorderSide.none,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-
-            //
-            SizedBox(height: SizeConfig.screenHeight * 0.02),
+            Observer(
+                builder: (_) => RideChatComposer(
+                      enabled: const {'accepted', 'arrived', 'started'}
+                          .contains(mapStore.currentRide?.ride?.status?.name),
+                      key: ValueKey(rideRequest.ride!.sId!),
+                      rideId: rideRequest.ride!.sId!,
+                      chat: mapStore.chat,
+                      foreground: Theme.of(context).colorScheme.surface,
+                      send: (text) => mapStore.sendMessage(
+                          rideId: rideRequest.ride!.sId!, message: text),
+                      typing: (typing) => mapStore.sendTypingNotification(
+                          rideId: rideRequest.ride!.sId!, isTyping: typing),
+                    )),
           ],
         ),
       ),

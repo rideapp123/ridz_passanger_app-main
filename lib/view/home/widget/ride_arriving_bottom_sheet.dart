@@ -1,6 +1,7 @@
+import 'ride_participant_header.dart';
+import 'ride_contact_button.dart';
 import 'package:ridzs_passenger_app/core/exports/common_exports.dart';
 import 'package:ridzs_passenger_app/models/common/ride_response/ride_response.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import 'ride_chat_bottom_sheet.dart';
 
@@ -41,17 +42,21 @@ class RideArrivingBottomSheet extends HookWidget {
             height: 4,
             width: SizeConfig.screenWidth * 0.1,
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.onTertiary.withValues(alpha: .2),
+              color: Theme.of(context)
+                  .colorScheme
+                  .onTertiary
+                  .withValues(alpha: .2),
               borderRadius: BorderRadius.circular(24),
             ),
           ),
 
           SizedBox(height: SizeConfig.screenHeight * 0.02),
 
-          DriverInfoBoxWidget(
-            driverName: rideRequest.driverName ?? 'N/A',
-            driverImage: rideRequest.driverPhoto ?? '',
-          ),
+          RideParticipantHeader(
+              rideRequest: rideRequest,
+              name: rideRequest.participantLabel,
+              photoUrl: rideRequest.driverPhoto,
+              vehicle: rideRequest.vehicle),
 
           SizedBox(height: SizeConfig.screenHeight * 0.02),
 
@@ -64,7 +69,10 @@ class RideArrivingBottomSheet extends HookWidget {
             ),
             decoration: BoxDecoration(
               border: Border.all(
-                color: Theme.of(context).colorScheme.onTertiary.withValues(alpha: .2),
+                color: Theme.of(context)
+                    .colorScheme
+                    .onTertiary
+                    .withValues(alpha: .2),
               ),
               borderRadius: BorderRadius.circular(16),
             ),
@@ -201,182 +209,11 @@ class RideArrivingBottomSheet extends HookWidget {
 
               SizedBox(width: SizeConfig.screenWidth * 0.02),
 
-              GestureDetector(
-                onTap: () async {
-                  // Call the driver's phone number
-                  if (rideRequest.driverNumber != null) {
-                    final Uri phoneUri =
-                        Uri.parse('tel:${rideRequest.driverNumber}');
-                    try {
-                      await launchUrl(phoneUri);
-                    } catch (e) {
-                      if (!context.mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Unable to make phone call'),
-                        ),
-                      );
-                    }
-                  } else {
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Driver phone number not available'),
-                      ),
-                    );
-                  }
-
-                  // NavigationService().pop();
-                  // showModalBottomSheet(
-                  //   context: context,
-                  //   backgroundColor: Colors.transparent,
-                  //   isScrollControlled: true,
-                  //   builder: (_) {
-                  //     return const RideStartedWidget();
-                  //   },
-                  // );
-                  // showModalBottomSheet(
-                  //   context: context,
-                  //   backgroundColor: Colors.transparent,
-                  //   isScrollControlled: true,
-                  //   builder: (_) {
-                  //     return const RideWaitingBottomSheet();
-                  //   },
-                  // );
-                },
-                child: Container(
-                  alignment: Alignment.center,
-                  width: SizeConfig.screenWidth * 0.1,
-                  height: SizeConfig.screenWidth * 0.1,
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primary,
-                    shape: BoxShape.circle,
-                  ),
-                  child: CustomImageView(
-                    svgPath: Assets.phoneIc2,
-                    height: 24,
-                    width: 24,
-                  ),
-                ),
-              ),
+              RideContactButton(uri: rideRequest.contactUri),
             ],
           ),
         ],
       ),
-    );
-  }
-}
-
-class DriverInfoBoxWidget extends StatelessWidget {
-  final String driverName;
-  final String driverImage;
-  const DriverInfoBoxWidget({
-    super.key,
-    required this.driverName,
-    required this.driverImage,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        //
-        if (driverImage.isEmpty)
-          Container(
-            height: SizeConfig.screenHeight * 0.06,
-            width: SizeConfig.screenHeight * 0.06,
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primary,
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              Icons.person,
-              color: Theme.of(context).colorScheme.secondary,
-              size: 18,
-            ),
-          )
-        else
-          ClipOval(
-            child: CustomImageView(
-              url: driverImage,
-              height: SizeConfig.screenHeight * 0.06,
-              width: SizeConfig.screenHeight * 0.06,
-              fit: BoxFit.cover,
-            ),
-          ),
-
-        SizedBox(width: SizeConfig.screenWidth * 0.02),
-
-        Expanded(
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Column(
-                mainAxisAlignment: MainAxisAlignment.start,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  //
-                  Text(
-                    driverName,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Theme.of(context).colorScheme.onPrimary,
-                    ),
-                  ),
-
-                  Text(
-                    'Kia Soul LX',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w400,
-                      color: Theme.of(context).colorScheme.tertiaryContainer,
-                    ),
-                  ),
-                ],
-              ),
-              Column(
-                mainAxisAlignment: MainAxisAlignment.start,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      //
-                      CustomImageView(
-                        svgPath: Assets.starIc,
-                        height: 20,
-                        width: 20,
-                      ),
-
-                      SizedBox(width: SizeConfig.screenWidth * 0.01),
-
-                      Text(
-                        '4.8',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w400,
-                          color: Theme.of(context).colorScheme.onPrimary,
-                        ),
-                      ),
-                    ],
-                  ),
-                  Text(
-                    'HSW 4736 XK',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: Theme.of(context).colorScheme.onPrimary,
-                    ),
-                  ),
-                ],
-              )
-            ],
-          ),
-        ),
-      ],
     );
   }
 }

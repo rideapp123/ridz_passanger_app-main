@@ -1,3 +1,5 @@
+import '../ride_participant.dart';
+
 class RideHistoryResponse {
   final bool success;
   final String message;
@@ -146,8 +148,10 @@ class Ride {
   });
 
   factory Ride.fromJson(Map<String, dynamic> json) {
+    final driverData = rideHistoryIdentity(json, 'driver');
+    final passengerData = rideHistoryIdentity(json, 'passenger');
     return Ride(
-      id: json['_id'] ?? '',
+      id: json['id'] ?? json['_id'] ?? '',
       passengerId: json['passengerId'] ?? '',
       vehicleType: json['vehicleType'] ?? '',
       pickup: Location.fromJson(json['pickup'] as Map<String, dynamic>? ?? {}),
@@ -155,9 +159,11 @@ class Ride {
           Location.fromJson(json['destination'] as Map<String, dynamic>? ?? {}),
       status: json['status'] ?? '',
       distanceInKm: (json['distanceInKm'] as num?)?.toDouble() ?? 0.0,
-      estimatedTimeInMinutes: json['estimatedTimeInMinutes'] ?? 0,
+      estimatedTimeInMinutes:
+          rideNumber(json['estimatedTimeInMinutes'])?.round() ?? 0,
       driverImage: json['driverImage'] ?? '',
-      waitingTimeInMinutes: json['waitingTimeInMinutes'] ?? 0,
+      waitingTimeInMinutes:
+          rideNumber(json['waitingTimeInMinutes'])?.round() ?? 0,
       fare: Fare.fromJson(json['fare'] as Map<String, dynamic>? ?? {}),
       route: Route.fromJson(json['route'] as Map<String, dynamic>? ?? {}),
       timestamps: Timestamps.fromJson(
@@ -170,13 +176,9 @@ class Ride {
       cancellation: json['cancellation'] != null
           ? Cancellation.fromJson(json['cancellation'] as Map<String, dynamic>)
           : null,
-      driverInfo: json['driverInfo'] != null
-          ? DriverInfo.fromJson(json['driverInfo'] as Map<String, dynamic>)
-          : null,
-      passengerInfo: json['passengerInfo'] != null
-          ? PassengerInfo.fromJson(
-              json['passengerInfo'] as Map<String, dynamic>)
-          : null,
+      driverInfo: driverData == null ? null : DriverInfo.fromJson(driverData),
+      passengerInfo:
+          passengerData == null ? null : PassengerInfo.fromJson(passengerData),
     );
   }
 

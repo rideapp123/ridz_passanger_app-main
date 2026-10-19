@@ -1,4 +1,6 @@
 import '../../core/theme/ridzs_theme.dart';
+import 'package:mobx/mobx.dart';
+import '../../widgets/ride_recovery_gate.dart';
 import '../../widgets/buttons/map_control_button.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -8,14 +10,13 @@ import 'package:ridzs_passenger_app/stores/map/map_store.dart';
 import 'package:ridzs_passenger_app/view/home/widget/destination_arrived_bottom_sheet.dart';
 import 'package:ridzs_passenger_app/view/home/widget/ride_arriving_bottom_sheet.dart';
 import 'package:ridzs_passenger_app/view/home/widget/ride_started_widget.dart';
-import 'package:ridzs_passenger_app/widgets/dialogs/app_dialog.dart';
 import 'package:skeletonizer/skeletonizer.dart';
 
 import '../../core/enums/ride.dart';
+import '../../core/services/wallet_refresh_policy.dart';
 import '../../models/common/ride_response/ride_response.dart';
-import '../../widgets/buttons/swipe_button.dart';
-import '../../widgets/overlays/radius_circles_overlay.dart';
 import 'widget/ride_waiting_bottom_sheet.dart';
+import 'widget/booking_status_panel.dart';
 
 class MainPage extends HookWidget {
   const MainPage({super.key});
@@ -38,8 +39,13 @@ class MainPage extends HookWidget {
     // Handle text controllers
     useEffect(() {
       currentLocationController.text = mapStore.currentLocationController.text;
+      return null;
+    }, [mapStore.currentLocationController.text]);
+
+    useEffect(() {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        mapStore.getCurrentRide();
+        if (!context.mounted) return;
+        mapStore.initialize();
         userStore.getMeMainPage();
         userStore.getCard();
         userStore.updateFCMToken();
@@ -54,8 +60,45 @@ class MainPage extends HookWidget {
           mapStyleString.value = string;
         });
       });
-      return null;
-    }, [mapStore.currentLocationController.text]);
+      return mapStore.dispose;
+    }, []);
+
+    useEffect(() {
+      return reaction<bool>(
+          (_) =>
+              mapStore.recovery.ready.value && !mapStore.recovery.loading.value,
+          (ready) {
+        if (ready) {
+          userStore.getWallet();
+          userStore.refreshTransactionList();
+        }
+      }).call;
+    }, []);
+
+    useEffect(() {
+      return reaction<(String?, String?, String?)>(
+        (_) {
+          final ride = mapStore.currentRide?.ride;
+          return (
+            ride?.sId,
+            ride?.status?.title,
+            ride?.payment?.status,
+          );
+        },
+        (snapshot) {
+          if (snapshot.$1 != null &&
+              mapStore.recovery.ready.value &&
+              !mapStore.recovery.loading.value &&
+              shouldRefreshWalletForRide(
+                rideStatus: snapshot.$2,
+                paymentStatus: snapshot.$3,
+              )) {
+            userStore.getWallet();
+            userStore.refreshTransactionList();
+          }
+        },
+      ).call;
+    }, []);
 
     useEffect(() {
       designationController.text = mapStore.designationController.text;
@@ -64,6 +107,9 @@ class MainPage extends HookWidget {
 
     useEffect(() {
       if (appLifeCycleState == AppLifecycleState.resumed) {
+        mapStore.onResume();
+        userStore.getWallet();
+        userStore.refreshTransactionList();
         rootBundle
             .loadString((userStore.themeMode == ThemeMode.dark ||
                         userStore.themeMode == ThemeMode.system) &&
@@ -77,6 +123,12 @@ class MainPage extends HookWidget {
       return;
     }, [appLifeCycleState]);
 
+    useEffect(() {
+      mapStore.recovery
+          .setForeground(appLifeCycleState == AppLifecycleState.resumed);
+      return () => mapStore.recovery.setForeground(false);
+    }, [appLifeCycleState]);
+
     return Scaffold(
       resizeToAvoidBottomInset: false,
       key: mainScfKey,
@@ -88,46 +140,119 @@ class MainPage extends HookWidget {
       body: CustomUpgradeAlert(
         shouldPopScope: () => AppConfig.allFlavor != AppFlavor.production,
         upgrader: CustomUpgrader(debugDisplayAlways: false),
-        child: Observer(
-          builder: (context) {
-            return Stack(
-              children: [
-                // Google Map
-                MapWidget(
-                  mapStore: mapStore,
-                  mapStyleString: mapStyleString.value,
-                ),
-
-                // Ride creation overlay
-                if (mapStoreProvider().isCreatingRide)
-                  RideCreationOverlay(
-                    isRideCancelling: mapStoreProvider().isCancellingRide,
+        child: RideRecoveryGate(
+          recovery: mapStore.recovery,
+          onLogout: () => userStore.logoutUser(ignoreApiCall: true),
+          child: Observer(
+            builder: (context) {
+              return Stack(
+                children: [
+                  // Google Map
+                  MapWidget(
+                    mapStore: mapStore,
+                    mapStyleString: mapStyleString.value,
                   ),
 
-                //
-                if (!mapStoreProvider().isCreatingRide &&
-                    !mapStoreProvider().isRideAccepted) ...[
-                  MenuButton(
-                    scaffoldKey: mainScfKey,
-                    themeColor: themeColor,
-                  ),
-                  BottomSectionWidget(
-                    currentLocationController: currentLocationController,
-                    designationController: designationController,
-                  ),
+                  // Ride creation overlay
+                  if (mapStore.currentRide == null &&
+                      (mapStore.booking.pending.value ||
+                          mapStore.booking.busy.value))
+                    MenuButton(scaffoldKey: mainScfKey, themeColor: themeColor),
+                  if (mapStore.isCreatingRide ||
+                      (mapStore.currentRide == null &&
+                          (mapStore.booking.pending.value ||
+                              mapStore.booking.busy.value)))
+                    Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                              maxHeight:
+                                  MediaQuery.sizeOf(context).height * 0.75),
+                          child: BookingStatusPanel(
+                            state: mapStore.bookingConfirmationPending
+                                ? BookingView.unconfirmed
+                                : mapStore.isCreatingRide
+                                    ? (mapStore.noDriversFound
+                                        ? BookingView.exhausted
+                                        : BookingView.searching)
+                                    : (mapStore.booking.busy.value
+                                        ? BookingView.submitting
+                                        : BookingView.unconfirmed),
+                            busy: mapStore.searchBusy.value ||
+                                mapStore.isCancellingRide ||
+                                mapStore.booking.busy.value,
+                            error: mapStore.error,
+                            onRetry: () {
+                              if (mapStore.currentRide == null ||
+                                  mapStore.bookingConfirmationPending) {
+                                mapStore.retryBookingConfirmation();
+                              } else {
+                                mapStore.retryDriverSearch();
+                              }
+                            },
+                            onCancel: mapStore.currentRide == null ||
+                                    mapStore.bookingConfirmationPending
+                                ? null
+                                : () async {
+                                    final confirmed = await showDialog<bool>(
+                                        context: context,
+                                        builder: (dialogContext) => AlertDialog(
+                                              title: const Text(
+                                                  'Cancel ride request?'),
+                                              actions: [
+                                                TextButton(
+                                                    onPressed: () =>
+                                                        Navigator.pop(
+                                                            dialogContext,
+                                                            false),
+                                                    child: const Text(
+                                                        'Keep request')),
+                                                TextButton(
+                                                    onPressed: () =>
+                                                        Navigator.pop(
+                                                            dialogContext,
+                                                            true),
+                                                    child: const Text(
+                                                        'Cancel request')),
+                                              ],
+                                            ));
+                                    if (confirmed == true) {
+                                      await mapStore
+                                          .cancelRide('Cancelled by passenger');
+                                    }
+                                  },
+                          ),
+                        )),
+
+                  //
+                  if (!mapStoreProvider().isCreatingRide &&
+                      !mapStore.booking.pending.value &&
+                      !mapStore.booking.busy.value &&
+                      !mapStoreProvider().isRideAccepted) ...[
+                    MenuButton(
+                      scaffoldKey: mainScfKey,
+                      themeColor: themeColor,
+                    ),
+                    BottomSectionWidget(
+                      currentLocationController: currentLocationController,
+                      designationController: designationController,
+                    ),
+                  ],
+
+                  // Ride status section
+                  if (mapStoreProvider().isRideAccepted &&
+                      mapStoreProvider().currentRide != null)
+                    RideStatusSection(
+                      currentRide: mapStoreProvider().currentRide!,
+                    ),
+
+                  // const RideArrivingBottomSheet(),
                 ],
-
-                // Ride status section
-                if (mapStoreProvider().isRideAccepted &&
-                    mapStoreProvider().currentRide != null)
-                  RideStatusSection(
-                    currentRide: mapStoreProvider().currentRide!,
-                  ),
-
-                // const RideArrivingBottomSheet(),
-              ],
-            );
-          },
+              );
+            },
+          ),
         ),
       ),
     );
@@ -579,91 +704,6 @@ class SafetyTripBannerWidget extends StatelessWidget {
 }
 
 // Ride Creation Overlay Widget
-class RideCreationOverlay extends StatelessWidget {
-  final bool isRideCancelling;
-  const RideCreationOverlay({
-    super.key,
-    required this.isRideCancelling,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: isRideCancelling
-              ? Center(
-                  child: CircularProgressIndicator(
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                )
-              : const RadiusCirclesOverlay(
-                  radiusLevels: [0.15, 0.3, 0.45, 0.6],
-                  color: Colors.orange,
-                ),
-        ),
-        Positioned(
-          top: 0,
-          left: 0,
-          right: 0,
-          child: Container(
-            height: 200,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Colors.white,
-                  Colors.white.withValues(alpha: 0.5),
-                  Colors.white.withValues(alpha: 0.0),
-                ],
-                stops: const [0.0, 0.7, 1.0],
-              ),
-            ),
-            alignment: Alignment.center,
-            child: Text(
-              isRideCancelling
-                  ? 'Cancelling ride request'
-                  : 'Looking for drivers',
-              style: AppTextStyles.style18W500.copyWith(
-                color: Theme.of(context).colorScheme.onInverseSurface,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ),
-        ),
-        Positioned(
-          bottom: 24,
-          left: 24,
-          right: 24,
-          child: SwipeButton(
-            onSwipeComplete: () async {
-              final result = await showDialog<bool>(
-                context: context,
-                builder: (_) {
-                  return AppDialog(
-                    onYesPressed: () {
-                      Navigator.of(context).pop(true);
-                    },
-                    title: 'Cancel Ride',
-                    subTitle: 'Are you sure you want to cancel the ride?',
-                    actionButtonTitle: 'Cancel Ride',
-                    icon: Assets.cancelIc,
-                    color: Theme.of(context).colorScheme.error,
-                  );
-                },
-              );
-
-              if (result ?? false) {
-                await mapStoreProvider().cancelRide('Cancelled by passenger');
-              }
-            },
-          ),
-        ),
-      ],
-    );
-  }
-}
 
 // Ride Status Section Widget
 class RideStatusSection extends StatelessWidget {

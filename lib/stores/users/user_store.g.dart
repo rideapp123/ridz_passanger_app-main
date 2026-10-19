@@ -474,15 +474,6 @@ mixin _$UserStore on UserStoreBase, Store {
     return _$updateFCMTokenAsyncAction.run(() => super.updateFCMToken());
   }
 
-  late final _$logoutUserAsyncAction =
-      AsyncAction('UserStoreBase.logoutUser', context: context);
-
-  @override
-  Future<void> logoutUser({bool ignoreApiCall = false}) {
-    return _$logoutUserAsyncAction
-        .run(() => super.logoutUser(ignoreApiCall: ignoreApiCall));
-  }
-
   late final _$updateUserAsyncAction =
       AsyncAction('UserStoreBase.updateUser', context: context);
 
@@ -511,16 +502,9 @@ mixin _$UserStore on UserStoreBase, Store {
       AsyncAction('UserStoreBase.addCard', context: context);
 
   @override
-  Future<void> addCard(
-      {required String cardNumber,
-      required String cvv,
-      required String cardHolderName,
-      required String expiryDate}) {
-    return _$addCardAsyncAction.run(() => super.addCard(
-        cardNumber: cardNumber,
-        cvv: cvv,
-        cardHolderName: cardHolderName,
-        expiryDate: expiryDate));
+  Future<void> addCard({required String cardHolderName}) {
+    return _$addCardAsyncAction
+        .run(() => super.addCard(cardHolderName: cardHolderName));
   }
 
   late final _$getCardAsyncAction =
@@ -721,6 +705,17 @@ mixin _$UserStore on UserStoreBase, Store {
         name: 'UserStoreBase.clearSearchUsersId');
     try {
       return super.clearSearchUsersId();
+    } finally {
+      _$UserStoreBaseActionController.endAction(_$actionInfo);
+    }
+  }
+
+  @override
+  Future<void> logoutUser({bool ignoreApiCall = false}) {
+    final _$actionInfo = _$UserStoreBaseActionController.startAction(
+        name: 'UserStoreBase.logoutUser');
+    try {
+      return super.logoutUser(ignoreApiCall: ignoreApiCall);
     } finally {
       _$UserStoreBaseActionController.endAction(_$actionInfo);
     }

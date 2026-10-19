@@ -22,22 +22,21 @@ class MyWallet extends HookWidget {
     double width = SizeConfig.screenWidth;
 
     useEffect(() {
+      void loadNextPage() {
+        if (scrollController.hasClients &&
+            scrollController.position.extentAfter < 120 &&
+            userStore.loadMoreData &&
+            !userStore.isTransactionLoading) {
+          userStore.getTransactionList();
+        }
+      }
+
+      scrollController.addListener(loadNextPage);
       WidgetsBinding.instance.addPostFrameCallback((_) {
         userStore.getWallet();
-        userStore.getTransactionList();
-
-        if (userStore.loadMoreData) {
-          scrollController.addListener(() {
-            if (scrollController.position.pixels ==
-                scrollController.position.maxScrollExtent) {
-              userStore.transactionPageNo++;
-
-              userStore.getTransactionList();
-            }
-          });
-        }
+        userStore.refreshTransactionList();
       });
-      return null;
+      return () => scrollController.removeListener(loadNextPage);
     }, []);
 
     return Scaffold(
@@ -209,6 +208,29 @@ class MyWallet extends HookWidget {
 
             Observer(builder: (context) {
               if (userStore.transactionList.isEmpty &&
+                  userStore.transactionError.value != null &&
+                  !userStore.isTransactionLoading) {
+                return Expanded(
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          userStore.transactionError.value!,
+                          style: AppTextStyles.error.copyWith(fontSize: 14),
+                          textAlign: TextAlign.center,
+                        ),
+                        TextButton.icon(
+                          onPressed: userStore.refreshTransactionList,
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Retry'),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }
+              if (userStore.transactionList.isEmpty &&
                   !userStore.isTransactionLoading) {
                 return Expanded(
                   child: Center(
@@ -222,29 +244,46 @@ class MyWallet extends HookWidget {
                 );
               }
               return Expanded(
-                child: Skeletonizer(
-                  enabled: userStore.isTransactionLoading,
-                  effect: ShimmerEffect(
-                    baseColor: Theme.of(context).colorScheme.tertiaryFixed,
-                  ),
-                  containersColor:
-                      Theme.of(context).colorScheme.surfaceContainerHigh,
-                  child: ListView.builder(
-                    controller: scrollController,
-                    itemCount: userStore.transactionList.length,
-                    shrinkWrap: true,
-                    padding: EdgeInsets.only(
-                      bottom: SizeConfig.screenHeight * 0.04,
+                child: Column(
+                  children: [
+                    if (userStore.transactionError.value != null)
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton.icon(
+                          onPressed: userStore.refreshTransactionList,
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Retry history'),
+                        ),
+                      ),
+                    Expanded(
+                      child: Skeletonizer(
+                        enabled: userStore.isTransactionLoading,
+                        effect: ShimmerEffect(
+                          baseColor:
+                              Theme.of(context).colorScheme.tertiaryFixed,
+                        ),
+                        containersColor:
+                            Theme.of(context).colorScheme.surfaceContainerHigh,
+                        child: ListView.builder(
+                          controller: scrollController,
+                          itemCount: userStore.transactionList.length,
+                          shrinkWrap: true,
+                          padding: EdgeInsets.only(
+                            bottom: SizeConfig.screenHeight * 0.04,
+                          ),
+                          itemBuilder: (_, index) {
+                            final transactionData =
+                                userStore.transactionList[index];
+                            return _detailsContainer(
+                              context: context,
+                              themeColor: themeColor,
+                              transaction: transactionData,
+                            );
+                          },
+                        ),
+                      ),
                     ),
-                    itemBuilder: (_, index) {
-                      final transactionData = userStore.transactionList[index];
-                      return _detailsContainer(
-                        context: context,
-                        themeColor: themeColor,
-                        transaction: transactionData,
-                      );
-                    },
-                  ),
+                  ],
                 ),
               );
             }),

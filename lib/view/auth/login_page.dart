@@ -1,8 +1,8 @@
+import 'package:ridzs_passenger_app/view/legal/passenger_legal_links.dart';
 import 'package:country_picker_pro/country_picker_pro.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
 import 'package:flutter_multi_formatter/flutter_multi_formatter.dart';
 import 'package:ridzs_passenger_app/core/exports/common_exports.dart';
-import 'package:ridzs_passenger_app/view/terms_and_condition_screen.dart';
 
 class LoginPage extends HookWidget {
   const LoginPage({super.key});
@@ -168,56 +168,7 @@ class LoginPage extends HookWidget {
                           hintText: selectedCountry.value.example,
                         ),
                         SizedBox(height: SizeConfig.screenHeight * 0.05),
-                        Center(
-                          child: RichText(
-                            textAlign: TextAlign.center,
-                            text: TextSpan(
-                              text: AppStrings.byContinuingYouAgreeToThe,
-                              style: AppTextStyles.link.copyWith(
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .onTertiaryContainer),
-                              children: [
-                                TextSpan(
-                                  text: AppStrings.terms,
-                                  style: AppTextStyles.link.copyWith(
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .primary),
-                                  recognizer: TapGestureRecognizer()
-                                    ..onTap = () {
-                                      NavigationService().navigateTo(
-                                        TermsAndConditionScreen.routeNamed,
-                                      );
-                                    },
-                                ),
-                                TextSpan(
-                                  text: ' & \n',
-                                  style: AppTextStyles.link.copyWith(
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .onTertiaryContainer),
-                                ),
-                                TextSpan(
-                                  text: AppStrings.privacyPolicy,
-                                  style: AppTextStyles.link.copyWith(
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .primary),
-                                  recognizer: TapGestureRecognizer()
-                                    ..onTap = () {},
-                                ),
-                                TextSpan(
-                                  text: AppStrings.ofRidz,
-                                  style: AppTextStyles.link.copyWith(
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .onTertiaryContainer),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
+                        const Center(child: PassengerLegalLinks()),
                         const SizedBox(height: 20),
                         CustomButton(
                           onTap: () async {

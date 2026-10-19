@@ -5,6 +5,7 @@ import 'dart:async';
 import 'dart:developer';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/services.dart';
 // import 'package:flutter/services.dart';
 // import 'package:flutter_osm_plugin/flutter_osm_plugin.dart';
@@ -26,10 +27,21 @@ import '../../core/constants/assets.dart';
 import '../../core/enums/ride.dart';
 import '../../core/services/dio_service.dart';
 import '../../core/services/socket_service.dart';
+import '../../core/services/ride_update_policy.dart';
+import '../../core/services/ride_recovery.dart';
+import '../../services/booking_attempt.dart';
+import '../../services/booking_quote_service.dart';
+import '../../models/ride/booking_quote.dart';
+import '../../core/configs/app_config.dart';
+import '../../core/services/preferences_service.dart';
 import '../../core/services/toast_service.dart';
 import '../../models/common/location/driver_location.dart';
 import '../../models/common/ride_response/ride_response.dart';
 import '../../models/ride/get_ride_response.dart' hide Payment;
+
+import '../../services/ride_chat_service.dart';
+import '../../services/ride_rating_service.dart';
+import '../../services/ride_emergency_service.dart';
 
 part 'map_store.g.dart';
 
@@ -41,9 +53,405 @@ MapStore mapStoreProvider({bool listen = false}) {
 }
 
 abstract class MapStoreBase with Store {
-  final SocketService _socketService = SocketService();
-  final RideService _rideService = RideService();
+  MapStoreBase(
+      {RideService? rideService,
+      void Function(String)? rideNotice,
+      Dio? recoveryDio,
+      SocketService? socketService,
+      RideChatService? chatService,
+      RideRatingService? ratingService,
+      bool? bookingQuotesEnabled,
+      Future<String?> Function()? sessionTokenReader})
+      : _rideService = rideService ?? RideService(),
+        _rideNotice = rideNotice ?? ToastService.show,
+        _recoveryDio = recoveryDio,
+        _socketService = socketService ?? SocketService(),
+        _providedChat = chatService,
+        _providedRatings = ratingService,
+        _sessionTokenReader = sessionTokenReader,
+        quoteBookingsEnabled =
+            bookingQuotesEnabled ?? AppConfig.bookingQuotesEnabled;
+
+  final bool quoteBookingsEnabled;
+  Object? _quoteSessionIdentity;
+  String? _quoteToken;
+  final _quoteSessions = <BookingQuoteService>{};
+
+  Future<BookingQuoteService> createQuoteSession() async {
+    if (!quoteBookingsEnabled) throw StateError('Quoted booking is disabled');
+    final generation = _sessionGeneration;
+    final token =
+        await (_sessionTokenReader ?? PreferencesService.getAccessToken)();
+    if (generation != _sessionGeneration || token == null || token.isEmpty) {
+      throw StateError('Sign in required');
+    }
+    await booking.restore();
+    if (generation != _sessionGeneration ||
+        booking.pending.value ||
+        booking.busy.value ||
+        currentRide != null) {
+      throw StateError(
+          'Resolve the current booking before requesting another fare');
+    }
+    if (_quoteToken != token) {
+      for (final session in _quoteSessions) {
+        session.dispose();
+      }
+      _quoteSessions.clear();
+      _quoteSessionIdentity = Object();
+      _quoteToken = token;
+    }
+    final service = BookingQuoteService(
+        dio: _recoveryDio ?? Api().dio,
+        expectedAuthToken: token,
+        sessionReader: () => _quoteSessionIdentity);
+    _quoteSessions.add(service);
+    return service;
+  }
+
+  void endQuoteSession(BookingQuoteService service) {
+    _quoteSessions.remove(service);
+    service.dispose();
+  }
+
+  Map<String, dynamic> quoteRequest() {
+    if (!hasValidLocations || selectedPrice == null) {
+      throw StateError('Select your trip');
+    }
+    return BookingQuote.canonicalRequest({
+      'vehicleType': selectedPrice!.vehicleType.name,
+      'pickup': {
+        'latitude': selectedSuggestionsFrom!.properties!.coordinates!.latitude!,
+        'longitude':
+            selectedSuggestionsFrom!.properties!.coordinates!.longitude!,
+        'address': currentLocationController.text,
+      },
+      'destination': {
+        'latitude': selectedSuggestionsTo!.properties!.coordinates!.latitude!,
+        'longitude': selectedSuggestionsTo!.properties!.coordinates!.longitude!,
+        'address': designationController.text,
+      },
+    });
+  }
+
+  final RideRatingService? _providedRatings;
+  late final RideRatingService ratings = _providedRatings ??
+      RideRatingService(role: 'passenger', dio: _recoveryDio);
+  final _feedbackBusy = Observable(false);
+  final _safetySessions = <RideEmergencyService>{};
+
+  RideEmergencyService createSafetySession() {
+    late final RideEmergencyService service;
+    service = RideEmergencyService(
+        role: 'passenger',
+        dio: _recoveryDio,
+        tokenReader: _sessionTokenReader,
+        onEnd: () => _safetySessions.remove(service));
+    _safetySessions.add(service);
+    return service;
+  }
+
+  final RideChatService? _providedChat;
+  late final RideChatService chat = _providedChat ??
+      RideChatService(
+          role: 'passenger',
+          dio: _recoveryDio,
+          tokenReader: _sessionTokenReader);
+  Timer? _typingExpiry;
+  int _chatRead = 0;
+
+  void clearTyping() {
+    _typingExpiry?.cancel();
+    _typingExpiry = null;
+    isTyping = false;
+  }
+
+  void receiveTyping(Map<String, dynamic> data) {
+    if (currentRide?.ride?.sId != data['rideId'] ||
+        !const {RideStatus.accepted, RideStatus.arrived, RideStatus.started}
+            .contains(currentRide?.ride?.status) ||
+        (data['user'] ?? data['by']) != 'driver') {
+      return;
+    }
+    clearTyping();
+    if ((data['isTyping'] ?? data['typing']) == true) {
+      isTyping = true;
+      final generation = _sessionGeneration;
+      _typingExpiry = Timer(const Duration(seconds: 4), () {
+        if (generation == _sessionGeneration) isTyping = false;
+      });
+    }
+  }
+
+  void receiveChatMessage(RideMessage message) {
+    if (currentRide?.ride?.sId != message.rideId) return;
+    chatMessages =
+        RideMessage.mergeHistory(chatMessages, [message], message.rideId);
+    if (message.sender == 'driver') clearTyping();
+  }
+
+  void startChatRecovery(String rideId, {bool Function()? canRead}) {
+    final generation = _sessionGeneration;
+    chat.startRecovery(rideId, (messages) {
+      if (generation != _sessionGeneration ||
+          currentRide?.ride?.sId != rideId) {
+        return;
+      }
+      runInAction(() => chatMessages =
+          RideMessage.mergeHistory(chatMessages, messages, rideId));
+    }, canRead: canRead);
+  }
+
+  final Dio? _recoveryDio;
+  final Future<String?> Function()? _sessionTokenReader;
+  bool _sessionStarted = false;
+  int _sessionGeneration = 0;
+  late final BookingAttempt booking =
+      BookingAttempt(service: _rideService, tokenReader: _sessionTokenReader);
+  final searchBusy = Observable(false);
+  bool get bookingConfirmationPending {
+    final ride = currentRide?.ride;
+    if (ride?.status != RideStatus.requested &&
+        ride?.status != RideStatus.searching) {
+      return false;
+    }
+    return !{'authorized', 'held'}.contains(ride?.payment?.status);
+  }
+
+  bool get noDriversFound =>
+      isCreatingRide &&
+      !bookingConfirmationPending &&
+      currentRide?.ride?.dispatch?['state'] == 'exhausted';
+  late final RideRecovery recovery = RideRecovery(
+    dio: _recoveryDio,
+    tokenReader: _sessionTokenReader,
+    currentRideId: () => currentRide?.ride?.sId,
+    restore: _restoreRecoveredRide,
+    canReconcile: () => !booking.busy.value && !isCancellingRide,
+  );
+
+  Future<void> _restoreRecoveredRide(Map<String, dynamic>? snapshot) async {
+    final generation = _sessionGeneration;
+    await booking.restore();
+    if (generation != _sessionGeneration) return;
+    if (snapshot == null) {
+      if (recovery.reconciling && currentRide == null) return;
+      _clearRideState();
+      return;
+    }
+    final incoming = RideRequest.fromJson(snapshot);
+    final samePhase = currentRide?.ride?.sId == incoming.ride?.sId &&
+        currentRide?.ride?.status == incoming.ride?.status;
+    if (currentRide?.ride?.sId != incoming.ride?.sId) _clearRideState();
+    applyRideUpdate(incoming, allowNewRide: true, fromRecovery: true);
+    if (recovery.reconciling && samePhase) return;
+    await resumeRideResources();
+  }
+
+  Future<void> resumeRideResources() async {
+    final ride = currentRide?.ride;
+    if (ride == null ||
+        ride.status == RideStatus.completed ||
+        ride.status == RideStatus.cancelled) {
+      return;
+    }
+    final epoch = _rideVisualEpoch;
+    if (ride.status == RideStatus.accepted ||
+        ride.status == RideStatus.arrived ||
+        ride.status == RideStatus.started) {
+      await _socketService.joinChatRoom(ride.sId!);
+      if (epoch != _rideVisualEpoch) return;
+      await loadChatMessage(rideId: ride.sId!);
+      if (epoch != _rideVisualEpoch) return;
+    }
+    final pickup = ride.pickup;
+    final destination = ride.destination;
+    if (pickup?.latitude == null ||
+        pickup?.longitude == null ||
+        destination?.latitude == null ||
+        destination?.longitude == null) {
+      return;
+    }
+    final from = LatLng(pickup!.latitude!, pickup.longitude!);
+    final to = LatLng(destination!.latitude!, destination.longitude!);
+    if (ride.status == RideStatus.started) {
+      await startNavigation(from, to);
+    } else {
+      await _calculateRoute(from, to);
+      if (epoch != _rideVisualEpoch) return;
+      await _addPickupMarker(from);
+      if (epoch != _rideVisualEpoch) return;
+      await _addDestinationMarker(to);
+    }
+  }
+
+  void _clearRideState() => runInAction(() {
+        ratings.reset();
+        _feedbackBusy.value = false;
+        _chatRead++;
+        chat.reset();
+        final previousId = currentRide?.ride?.sId;
+        if (previousId != null) {
+          unawaited(_socketService
+              .leaveChatRoom(previousId)
+              .catchError((Object _) {}));
+        }
+        _rideVisualEpoch++;
+        _stopNavigation();
+        _dropStreamSubscription?.cancel();
+        _dropStreamSubscription = null;
+        currentRide = null;
+        isCreatingRide = false;
+        isRideAccepted = false;
+        isCancellingRide = false;
+        chatMessages = [];
+        clearTyping();
+        isLoadingChatMessage = false;
+        markers = {};
+        polylines = {};
+        nearbyDrivers.clear();
+      });
+
+  Future<void> onResume() async {
+    if (!_sessionStarted) return;
+    _socketService.reconnect();
+    await recovery.refresh();
+  }
+
+  Future<void> endSession() async {
+    final cleared = recovery.forget();
+    dispose();
+    await cleared;
+  }
+
+  final SocketService _socketService;
+  final RideService _rideService;
+  final void Function(String) _rideNotice;
   final MapService _mapService = MapService();
+  final Set<String> _closedRideIds = {};
+  int _rideVisualEpoch = 0;
+
+  bool applyRideUpdate(RideRequest incoming,
+          {bool allowNewRide = false, bool fromRecovery = false}) =>
+      runInAction(() {
+        final previous = currentRide;
+        final ride = incoming.ride;
+
+        // Profile/contact refreshes can change independently of the ride revision.
+        if (fromRecovery &&
+            currentRide != null &&
+            ride != null &&
+            ride.sId != null &&
+            ride.sId == previous?.ride?.sId &&
+            ride.version != null &&
+            ride.version == previous?.ride?.version &&
+            ride.status == previous?.ride?.status &&
+            ride.driverId == previous?.ride?.driverId &&
+            !_closedRideIds.contains(ride.sId)) {
+          incoming.mergeDisplayFrom(previous);
+          incoming.ride = previous!.ride;
+          currentRide = incoming;
+          return true;
+        }
+        if (ride == null ||
+            _closedRideIds.contains(ride.sId) ||
+            !acceptsRideUpdate(
+              expectedId:
+                  previous?.ride?.sId ?? (allowNewRide ? ride.sId : null),
+              incomingId: ride.sId,
+              currentStatus: previous?.ride?.status?.title,
+              incomingStatus: ride.status?.title,
+              currentVersion: previous?.ride?.version,
+              incomingVersion: ride.version,
+            )) {
+          return false;
+        }
+        final oldStatus = previous?.ride?.status;
+        if (ride.status == RideStatus.completed ||
+            ride.status == RideStatus.cancelled) {
+          _chatRead++;
+          chat.reset();
+          clearTyping();
+          isLoadingChatMessage = false;
+        }
+        if (_sessionStarted && !fromRecovery) {
+          recovery.changed();
+          recovery
+              .remember(ride.status == RideStatus.cancelled ? null : ride.sId);
+        }
+        _rideVisualEpoch++;
+        error = null;
+        if (ride.status == RideStatus.cancelled) {
+          _closedRideIds.add(ride.sId!);
+          currentRide = null;
+          isCreatingRide = false;
+          isRideAccepted = false;
+          isCancellingRide = false;
+          _stopNavigation();
+          _dropStreamSubscription?.cancel();
+          _dropStreamSubscription = null;
+          markers = {};
+          polylines = {};
+          nearbyDrivers.clear();
+          chatMessages = [];
+          clearTyping();
+          unawaited(_socketService
+              .leaveChatRoom(ride.sId!)
+              .catchError((Object _) {}));
+          _rideNotice(ride.payment?.status == 'rejected'
+              ? 'Booking was not placed. Review your payment method.'
+              : 'Ride cancelled. You can book another ride.');
+          return true;
+        }
+        incoming.mergeDisplayFrom(previous);
+        currentRide = incoming;
+        isCreatingRide = ride.status == RideStatus.requested ||
+            ride.status == RideStatus.searching;
+        isRideAccepted = !isCreatingRide;
+        if (ride.status == RideStatus.completed) {
+          _stopNavigation();
+          _dropStreamSubscription?.cancel();
+          _dropStreamSubscription = null;
+          polylines = {};
+          markers = {};
+          if (oldStatus != RideStatus.completed) {
+            _rideNotice(_paymentCompletionMessage(ride.payment));
+          }
+        }
+        return true;
+      });
+
+  Future<void> _handleRideUpdate(RideRequest response) async {
+    if (currentRide == null && (booking.pending.value || booking.busy.value)) {
+      await recovery.refresh();
+      return;
+    }
+    final oldStatus = currentRide?.ride?.status;
+    if (!applyRideUpdate(response)) return;
+    final ride = currentRide?.ride;
+    if (ride == null || oldStatus == ride.status) return;
+    final pickup = ride.pickup;
+    final destination = ride.destination;
+    if (pickup?.latitude == null ||
+        pickup?.longitude == null ||
+        destination?.latitude == null ||
+        destination?.longitude == null) {
+      return;
+    }
+    final from = LatLng(pickup!.latitude!, pickup.longitude!);
+    final to = LatLng(destination!.latitude!, destination.longitude!);
+    final epoch = _rideVisualEpoch;
+    if (ride.status == RideStatus.accepted) {
+      nearbyDrivers.clear();
+      await _calculateRoute(from, to);
+      if (epoch != _rideVisualEpoch) return;
+      await _addPickupMarker(from);
+      if (epoch != _rideVisualEpoch) return;
+      await _addDestinationMarker(to);
+    } else if (ride.status == RideStatus.started) {
+      await startNavigation(from, to);
+    }
+  }
 
   @observable
   bool isLoginLoading = false;
@@ -208,57 +616,54 @@ abstract class MapStoreBase with Store {
   @observable
   bool isLoadingChatMessage = false;
 
-  @observable
-  Future<void> loadChatMessage({required String rideId}) async {
+  Future<void> loadChatMessage(
+      {required String rideId, bool older = false}) async {
+    if (currentRide?.ride?.sId != rideId) return;
+    final generation = _sessionGeneration;
+    final read = ++_chatRead;
+    isLoadingChatMessage = true;
+    runInAction(() => chat.historyError.value = null);
     try {
-      isLoadingChatMessage = true;
-      final request = await Api().dio.get(
-            '/chat/$rideId',
-          );
-
-      log('Chat message status code: ${request.statusCode}');
-      log('Chat message response: ${request.data}');
-
-      if (request.statusCode == 200) {
-        final payload = request.data is Map<String, dynamic>
-            ? Map<String, dynamic>.from(request.data as Map)
-            : <String, dynamic>{};
-        final data = payload['data'] is Map<String, dynamic>
-            ? Map<String, dynamic>.from(payload['data'] as Map)
-            : <String, dynamic>{};
-        final messages = (data['messages'] as List? ?? <dynamic>[]);
-        final response = messages.map((e) {
-          return RideMessage.fromJson(e);
-        }).toList();
-
-        chatMessages = response.toList();
-        isLoadingChatMessage = false;
-      } else {
-        log('Error loading chat messages: ${request.statusCode}');
+      final messages = await chat.history(rideId, older: older);
+      if (generation != _sessionGeneration ||
+          read != _chatRead ||
+          currentRide?.ride?.sId != rideId) {
+        return;
+      }
+      // Refreshed source text must replace cached text after a privacy correction.
+      chatMessages = RideMessage.mergeHistory(chatMessages, messages, rideId);
+    } catch (failure) {
+      if (generation == _sessionGeneration &&
+          read == _chatRead &&
+          currentRide?.ride?.sId == rideId) {
+        runInAction(() => chat.historyError.value = failure is FormatException
+            ? failure.message
+            : 'Chat history could not be loaded.');
+      }
+    } finally {
+      if (generation == _sessionGeneration &&
+          read == _chatRead &&
+          currentRide?.ride?.sId == rideId) {
         isLoadingChatMessage = false;
       }
-    } catch (e) {
-      log('Error loading chat messages: ${e.toString()}');
-      isLoadingChatMessage = false;
-    } finally {
-      isLoadingChatMessage = false;
     }
   }
 
-  @action
-  Future<void> sendMessage({
+  Future<bool> sendMessage({
     required String rideId,
     required String message,
   }) async {
-    try {
-      await _socketService.sendMessage(
-        rideId: rideId,
-        message: message,
-      );
-    } catch (e) {
-      log('Error sending message: ${e.toString()}');
-      ToastService.show('Error sending message');
+    if (currentRide?.ride?.sId != rideId) return false;
+    final generation = _sessionGeneration;
+    final confirmed = await chat.send(rideId, message);
+    if (generation != _sessionGeneration ||
+        currentRide?.ride?.sId != rideId ||
+        confirmed == null) {
+      return false;
     }
+    receiveChatMessage(confirmed);
+    await sendTypingNotification(rideId: rideId, isTyping: false);
+    return generation == _sessionGeneration && currentRide?.ride?.sId == rideId;
   }
 
   @action
@@ -273,6 +678,7 @@ abstract class MapStoreBase with Store {
 
   @action
   Future<void> leaveChatRoom({required String rideId}) async {
+    if (currentRide?.ride?.sId == rideId) clearTyping();
     try {
       await _socketService.leaveChatRoom(rideId);
     } catch (e) {
@@ -286,6 +692,10 @@ abstract class MapStoreBase with Store {
     required String rideId,
     required bool isTyping,
   }) async {
+    if (currentRide?.ride?.sId != rideId ||
+        !chat.shouldSendTyping(rideId, isTyping)) {
+      return;
+    }
     try {
       await _socketService.sendTypingNotification(
         rideId: rideId,
@@ -432,6 +842,12 @@ abstract class MapStoreBase with Store {
 
   @action
   Future<void> initialize() async {
+    if (_sessionStarted) {
+      await recovery.refresh();
+      return;
+    }
+    _sessionStarted = true;
+    recovery.activate();
     try {
       initializeMap();
       await _socketService.initialize(
@@ -450,70 +866,18 @@ abstract class MapStoreBase with Store {
           }
           updateDriverMarkers();
         },
-        onRideAccepted: (response) async {
-          log('Ride Status: ${response.ride?.status}');
-          log('Ride accepted: ${response.toJson()}');
-          isCreatingRide = false;
-          isRideAccepted = true;
-          currentRide = response;
-
-          nearbyDrivers.clear();
-
-          if (response.ride?.pickup != null &&
-              response.ride?.destination != null) {
-            final pickupLocation = LatLng(
-              response.ride!.pickup!.latitude!,
-              response.ride!.pickup!.longitude!,
-            );
-            final dropLocation = LatLng(
-              response.ride!.destination!.latitude!,
-              response.ride!.destination!.longitude!,
-            );
-
-            await _calculateRoute(pickupLocation, dropLocation);
-
-            await _addPickupMarker(pickupLocation);
-            await _addDestinationMarker(dropLocation);
-          }
-
-          updateDriverMarkers();
-        },
-        onRideStatusUpdate: (response) {
-          log('Ride Status Ride Status: ${response.ride?.status}');
-          isCreatingRide = false;
-          currentRide = response;
-        },
+        onRideAccepted: _handleRideUpdate,
+        onRideStatusUpdate: _handleRideUpdate,
+        onRideSync: recovery.handleSyncHint,
+        onBookingSync: recovery.handleBookingHint,
         onRideRejected: (response) {
-          log('Ride Status: ${response.ride?.status}');
+          if (response.ride?.status == RideStatus.cancelled) {
+            _handleRideUpdate(response);
+          }
         },
-        onRideArrived: (response) {
-          log('Ride Status: ${response.ride?.status}');
-          currentRide = response;
-        },
-        onRideStarted: (response) async {
-          log('Ride Status: ${response.ride?.status}');
-          currentRide = response;
-          startNavigation(
-            LatLng(
-              response.ride?.pickup?.latitude ?? 0.0,
-              response.ride?.pickup?.longitude ?? 0.0,
-            ),
-            LatLng(
-              response.ride?.destination?.latitude ?? 0.0,
-              response.ride?.destination?.longitude ?? 0.0,
-            ),
-          );
-        },
-        onRideCompleted: (response) async {
-          log('Ride completed: ${response.ride?.status}');
-          currentRide = response;
-          _stopNavigation();
-          polylines.clear();
-          markers = markers
-              .where((m) => !m.markerId.value.startsWith('driver_'))
-              .toSet();
-          ToastService.show(_paymentCompletionMessage(response.ride?.payment));
-        },
+        onRideArrived: _handleRideUpdate,
+        onRideStarted: _handleRideUpdate,
+        onRideCompleted: _handleRideUpdate,
         onDriverLocation: (driver) {
           if (!isRideAccepted ||
               driver.driverId != currentRide?.ride?.driverId) {
@@ -524,28 +888,24 @@ abstract class MapStoreBase with Store {
         },
         onError: (message) => error = message,
         onConnected: () {
+          if (!_sessionStarted) return;
           isConnected = true;
           error = null;
+          unawaited(recovery.refresh());
           findNearbyDrivers();
         },
         onDisconnected: () {
+          clearTyping();
           isConnected = false;
           nearbyDrivers.clear();
         },
-        typingStatus: (data) {
-          if (data['isTyping'] && data['user'] == 'driver') {
-            isTyping = true;
-          } else {
-            isTyping = false;
-          }
-        },
-        onMessageReceived: (message) {
-          chatMessages = [...chatMessages, message];
-        },
+        typingStatus: receiveTyping,
+        onMessageReceived: receiveChatMessage,
       );
     } catch (e) {
       error = e.toString();
     }
+    if (_sessionStarted) await recovery.refresh();
   }
 
   @observable
@@ -558,12 +918,14 @@ abstract class MapStoreBase with Store {
   double userBearing = 0.0;
 
   Future<void> _addPickupMarker(LatLng point) async {
+    final epoch = _rideVisualEpoch;
     final BitmapDescriptor icon = await _getBitmapDescriptorFromIconData(
       Icons.location_on,
       Colors.green,
       48,
     );
 
+    if (epoch != _rideVisualEpoch) return;
     final marker = Marker(
       markerId: const MarkerId('pickup_location'),
       position: point,
@@ -574,12 +936,14 @@ abstract class MapStoreBase with Store {
   }
 
   Future<void> _addDestinationMarker(LatLng point) async {
+    final epoch = _rideVisualEpoch;
     final BitmapDescriptor icon = await _getBitmapDescriptorFromIconData(
       Icons.place,
       Colors.red,
       48,
     );
 
+    if (epoch != _rideVisualEpoch) return;
     final marker = Marker(
       markerId: const MarkerId('destination'),
       position: point,
@@ -590,6 +954,7 @@ abstract class MapStoreBase with Store {
   }
 
   Future<void> _addUserDirectionMarker(LatLng point) async {
+    final epoch = _rideVisualEpoch;
     try {
       markers =
           markers.where((m) => m.markerId.value != 'user_location').toSet();
@@ -612,7 +977,7 @@ abstract class MapStoreBase with Store {
       rotation: userBearing,
     );
 
-    markers = {...markers, marker};
+    if (epoch == _rideVisualEpoch) markers = {...markers, marker};
   }
 
   StreamSubscription<Position>? _positionStreamSubscription;
@@ -622,6 +987,8 @@ abstract class MapStoreBase with Store {
   bool _followUser = false;
 
   void _startLocationTracking() {
+    final generation = _sessionGeneration;
+    _positionStreamSubscription?.cancel();
     LocationSettings locationSettings = const LocationSettings(
       accuracy: LocationAccuracy.high,
       distanceFilter: 5,
@@ -630,6 +997,7 @@ abstract class MapStoreBase with Store {
     _positionStreamSubscription = Geolocator.getPositionStream(
       locationSettings: locationSettings,
     ).listen((Position position) {
+      if (generation != _sessionGeneration) return;
       _updateUserLocation(position);
     });
   }
@@ -679,6 +1047,7 @@ abstract class MapStoreBase with Store {
 
   Future<void> _calculateRoute(
       LatLng pickupLocation, LatLng dropLocation) async {
+    final epoch = _rideVisualEpoch;
     try {
       polylines.clear();
 
@@ -688,6 +1057,7 @@ abstract class MapStoreBase with Store {
           dropLocation.latitude.toString(),
           dropLocation.longitude.toString());
 
+      if (epoch != _rideVisualEpoch) return;
       List<LatLng> routePoints = [];
 
       if (directions.routes != null && directions.routes!.isNotEmpty) {
@@ -740,6 +1110,7 @@ abstract class MapStoreBase with Store {
     LatLng pickupPoint,
     LatLng destinationPoint,
   ) async {
+    final epoch = _rideVisualEpoch;
     final pickupLocation = LatLng(pickupPoint.latitude, pickupPoint.longitude);
     final destination =
         LatLng(destinationPoint.latitude, destinationPoint.longitude);
@@ -748,7 +1119,9 @@ abstract class MapStoreBase with Store {
     log('Destination: Latitude: ${destination.latitude}, Longitude: ${destination.longitude}');
 
     await _calculateRoute(pickupLocation, destination);
+    if (epoch != _rideVisualEpoch) return;
     await _setDestination(destination);
+    if (epoch != _rideVisualEpoch) return;
     _startLocationTracking();
     _followUser = true;
     isNavigating = true;
@@ -757,8 +1130,9 @@ abstract class MapStoreBase with Store {
   @observable
   bool isNavigating = false;
 
-  void _stopNavigation() async {
+  void _stopNavigation() {
     _positionStreamSubscription?.cancel();
+    _positionStreamSubscription = null;
     polylines.clear();
 
     googleMapController?.animateCamera(
@@ -919,20 +1293,25 @@ abstract class MapStoreBase with Store {
 
   @action
   Future<void> startLocationTracking() async {
+    final generation = _sessionGeneration;
     if (isTrackingLocation) return;
 
     try {
       isTrackingLocation = true;
       final initialPosition = await Geolocator.getCurrentPosition();
+      if (generation != _sessionGeneration) return;
       _lastPosition = initialPosition;
       await _findNearbyDriversAtPosition(initialPosition);
+      if (generation != _sessionGeneration) return;
 
       _locationSubscription = Geolocator.getPositionStream(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high,
           distanceFilter: 50,
         ),
-      ).listen(_handleLocationUpdate);
+      ).listen((position) {
+        if (generation == _sessionGeneration) _handleLocationUpdate(position);
+      });
 
       _nearbyDriversTimer = Timer.periodic(
         const Duration(seconds: 5),
@@ -993,112 +1372,197 @@ abstract class MapStoreBase with Store {
     required String feedback,
     required int rating,
   }) async {
+    if (_feedbackBusy.value || currentRide?.ride?.sId != rideId) return;
+    if (currentRide?.ride?.status != RideStatus.completed) {
+      runInAction(
+          () => ratings.error.value = 'Only completed rides can be rated.');
+      return;
+    }
+    final generation = _sessionGeneration;
+    bool savedConfirmed = false;
+    _feedbackBusy.value = true;
+
     try {
-      await _socketService.giveFeedback(
-        feedback: feedback,
-        rideId: rideId,
-        rating: rating,
-      );
-
-      isRideAccepted = false;
-      currentRide = null;
-
-      markers = {};
-      polylines = {};
-      _dropStreamSubscription?.cancel();
-      chatMessages = [];
-    } catch (e, st) {
-      error = 'Failed to give ride: ${e.toString()}';
-      log('Error giving ride: ${e.toString()}');
-      log('Error giving ride: $st');
+      final saved = await ratings.submit(rideId, rating, feedback);
+      if (saved == null ||
+          generation != _sessionGeneration ||
+          currentRide?.ride?.sId != rideId) {
+        return;
+      }
+      savedConfirmed = true;
+      await recovery.forget();
+      if (generation != _sessionGeneration ||
+          currentRide?.ride?.sId != rideId) {
+        return;
+      }
+      _closedRideIds.add(rideId);
+      _clearRideState();
+      _rideNotice(saved.stars == rating && saved.feedback == feedback.trim()
+          ? 'Rating saved.'
+          : 'Your earlier rating was already saved.');
+    } catch (_) {
+      if (generation == _sessionGeneration &&
+          currentRide?.ride?.sId == rideId) {
+        runInAction(() => ratings.error.value = savedConfirmed
+            ? 'Your rating is saved. Finishing this ride could not be confirmed; please retry.'
+            : 'Rating not confirmed. Please retry.');
+      }
+    } finally {
+      if (generation == _sessionGeneration) {
+        _feedbackBusy.value = false;
+      }
     }
   }
 
   @action
-  Future<void> createRideRequest(PaymentMethod paymentMethod) async {
-    if (!isConnected || !hasValidLocations) {
+  Future<bool> createRideRequest(PaymentMethod paymentMethod,
+      {String? cardId,
+      BookingQuote? quote,
+      BookingQuoteService? quoteSession}) async {
+    if (booking.busy.value || booking.pending.value || currentRide != null) {
+      return false;
+    }
+    if (_sessionStarted && !recovery.ready.value) return false;
+    if (!hasValidLocations || selectedPrice == null) {
       error = 'Please select both pickup and dropoff locations';
+      return false;
+    }
+    if (quoteBookingsEnabled || quote != null) {
+      final generation = _sessionGeneration;
+      final token =
+          await (_sessionTokenReader ?? PreferencesService.getAccessToken)();
+      if (generation != _sessionGeneration) return false;
+      if (!quoteBookingsEnabled ||
+          quote == null ||
+          quoteSession == null ||
+          !_quoteSessions.contains(quoteSession) ||
+          !quoteSession.owns(quote) ||
+          token != _quoteToken ||
+          !quote.bookingSupported ||
+          quote.remaining <= Duration.zero ||
+          !quote.matchesRequest(quoteRequest())) {
+        error = 'Review a current fare before booking.';
+        return false;
+      }
+      return submitBooking({
+        'quoteId': quote.id,
+        'quoteFingerprint': quote.fingerprint,
+        'quoteAmountMinor': quote.amountMinor,
+        'paymentMethod': paymentMethod.name,
+        if (paymentMethod == PaymentMethod.card && cardId != null)
+          'cardId': cardId,
+      });
+    }
+    final routeDistanceInKm =
+        getKilometer(directions?.routes?[0].distance ?? 0.0);
+    final routeTimeInMinutes = ((directions?.routes?[0].duration ?? 0.0) / 60)
+        .round()
+        .clamp(1, 1440)
+        .toInt();
+
+    return submitBooking({
+      'vehicleType': selectedPrice!.vehicleType.name,
+      'pickup': {
+        'latitude': selectedSuggestionsFrom!.properties!.coordinates!.latitude!,
+        'longitude':
+            selectedSuggestionsFrom!.properties!.coordinates!.longitude!,
+        'address': currentLocationController.text
+      },
+      'destination': {
+        'latitude': selectedSuggestionsTo!.properties!.coordinates!.latitude!,
+        'longitude': selectedSuggestionsTo!.properties!.coordinates!.longitude!,
+        'address': designationController.text
+      },
+      'paymentMethod': paymentMethod.name,
+      if (cardId != null) 'cardId': cardId,
+      'distanceInKm': routeDistanceInKm,
+      'timeInMinutes': routeTimeInMinutes,
+    });
+  }
+
+  Future<bool> submitBooking([Map<String, dynamic>? payload]) async {
+    if (booking.busy.value ||
+        (currentRide != null &&
+            (!bookingConfirmationPending || !booking.pending.value))) {
+      return false;
+    }
+    if (_sessionStarted && !recovery.ready.value) return false;
+    final generation = _sessionGeneration;
+    try {
+      final response = await booking.submit(payload);
+      if (generation != _sessionGeneration) return false;
+      applyRideUpdate(response, allowNewRide: true);
+      await resumeRideResources();
+      return generation == _sessionGeneration &&
+          currentRide != null &&
+          !bookingConfirmationPending;
+    } catch (_) {
+      if (generation != _sessionGeneration) return false;
+      if (_sessionStarted) await recovery.requireRefresh();
+      if (generation != _sessionGeneration) return false;
+      if (currentRide != null && !bookingConfirmationPending) return true;
+      runInAction(() => error = booking.error.value);
+      return false;
+    }
+  }
+
+  Future<void> retryBookingConfirmation() async {
+    if (booking.busy.value) return;
+    if (currentRide == null || booking.pending.value) {
+      await submitBooking();
+    } else if (bookingConfirmationPending) {
+      await recovery.requireRefresh();
+    }
+  }
+
+  Future<void> retryDriverSearch() async {
+    final ride = currentRide?.ride;
+    if (searchBusy.value ||
+        !noDriversFound ||
+        ride?.sId == null ||
+        ride?.version == null) {
       return;
     }
-
-    try {
-      isCreatingRide = true;
+    if (_sessionStarted && !recovery.ready.value) return;
+    final generation = _sessionGeneration;
+    final rideId = ride!.sId!;
+    final version = ride.version!;
+    bool ownsRide() =>
+        generation == _sessionGeneration && currentRide?.ride?.sId == rideId;
+    runInAction(() {
+      searchBusy.value = true;
       error = null;
-      final routeDistanceInKm =
-          getKilometer(directions?.routes?[0].distance ?? 0.0);
-      final routeTimeInMinutes = ((directions?.routes?[0].duration ?? 0.0) / 60)
-          .round()
-          .clamp(1, 1440)
-          .toInt();
-
-      final response = await _rideService.createRideRequest(
-        vehicleType: selectedPrice!.vehicleType,
-        pickup: LocationDetails(
-          latitude: selectedSuggestionsFrom!.properties!.coordinates!.latitude!,
-          longitude:
-              selectedSuggestionsFrom!.properties!.coordinates!.longitude!,
-          address: currentLocationController.text,
-          instructions: selectedSuggestionsFrom!.properties!.address,
-        ),
-        destination: LocationDetails(
-          latitude: selectedSuggestionsTo!.properties!.coordinates!.latitude!,
-          longitude: selectedSuggestionsTo!.properties!.coordinates!.longitude!,
-          address: designationController.text,
-          instructions: selectedSuggestionsTo!.properties!.address,
-        ),
-        paymentMethod: paymentMethod,
-        distanceInKm: routeDistanceInKm,
-        estimatedTimeInMinutes: routeTimeInMinutes,
-      );
-      currentRide = response;
-      final wayPoints = decodePolyline(
-        currentRide?.ride?.route?.encoded ?? '',
-      );
-
-      List<LatLng> routePoints = wayPoints.map((e) {
-        return LatLng(e[0], e[1]);
-      }).toList();
-
-      if (routePoints.isNotEmpty) {
-        final polyline = Polyline(
-          polylineId: const PolylineId('ride_route'),
-          points: routePoints,
-          color: const Color(0xffFF9100),
-          width: 6,
-        );
-
-        polylines = {polyline};
-
-        final bounds = _calculateBounds(routePoints);
-        googleMapController?.animateCamera(
-          CameraUpdate.newLatLngBounds(bounds, 100),
-        );
+    });
+    try {
+      final token =
+          await (_sessionTokenReader ?? PreferencesService.getAccessToken)();
+      if (!ownsRide() ||
+          currentRide?.ride?.version != version ||
+          !noDriversFound) {
+        return;
       }
-    } catch (e) {
-      error = 'Failed to create ride: ${e.toString()}';
+      if (token == null || token.isEmpty) throw StateError('Sign in required');
+      final updated = await _rideService.retrySearch(rideId, version,
+          expectedAuthToken: token);
+      if (ownsRide()) applyRideUpdate(updated);
+    } catch (failure) {
+      if (!ownsRide()) return;
+      if (_sessionStarted) await recovery.requireRefresh();
+      if (ownsRide() && noDriversFound) {
+        final data = failure is DioException ? failure.response?.data : null;
+        final needsRecovery =
+            data is Map && data['code'] == 'BOOKING_SEARCH_RECOVERY_REQUIRED';
+        runInAction(() => error = needsRecovery
+            ? 'This search cannot be restarted automatically. Refresh the ride or contact support.'
+            : 'Search could not be refreshed. Please retry.');
+      }
     } finally {
-      isCreatingRide = false;
+      if (generation == _sessionGeneration) {
+        runInAction(() => searchBusy.value = false);
+      }
     }
   }
 
-  Future<num?> claimAdRewardForCurrentRide() async {
-    final rideId = currentRide?.ride?.sId;
-    final session = await _rideService.startAdReward(rideId: rideId);
-    final sessionId = (session['id'] ?? session['_id'] ?? '').toString();
-    if (sessionId.isEmpty) {
-      throw Exception('Ad reward session was not created');
-    }
-    final result = await _rideService.completeAdReward(sessionId);
-    final transaction = result['transaction'];
-    if (transaction is Map && transaction['amount'] is num) {
-      return transaction['amount'] as num;
-    }
-    final completedSession = result['session'];
-    if (completedSession is Map && completedSession['rewardAmount'] is num) {
-      return completedSession['rewardAmount'] as num;
-    }
-    return null;
-  }
 
   @observable
   bool isApplyingPromoCode = false;
@@ -1161,39 +1625,46 @@ abstract class MapStoreBase with Store {
 
   @action
   Future<void> cancelRide(String reason) async {
-    if (currentRide == null) return;
+    if (bookingConfirmationPending) return;
+    if (_sessionStarted && !recovery.ready.value) return;
+    final generation = _sessionGeneration;
+    if (currentRide == null || isCancellingRide) return;
+    final rideId = currentRide!.ride!.sId!;
 
     try {
       isCancellingRide = true;
-      await _rideService.updateRideStatus(
-        currentRide!.ride!.sId!,
+      final confirmed = await _rideService.updateRideStatus(
+        rideId,
         RideStatus.cancelled,
         reason: reason,
       );
 
-      currentRide = null;
-      _stopNavigation();
-      polylines.clear();
-      isCreatingRide = false;
-      isRideAccepted = false;
-      markers =
-          markers.where((m) => !m.markerId.value.startsWith('driver_')).toSet();
-      ToastService.show('Ride cancelled successfully!');
+      if (generation != _sessionGeneration) return;
+      applyRideUpdate(RideRequest(ride: confirmed));
     } catch (e) {
-      error = 'Failed to cancel ride: ${e.toString()}';
+      if (generation != _sessionGeneration) return;
+      if (_sessionStarted) await recovery.requireRefresh();
+      if (generation != _sessionGeneration) return;
+      if (currentRide?.ride?.sId == rideId) {
+        error = 'Failed to cancel ride: ${e.toString()}';
+      }
     } finally {
-      isCancellingRide = false;
+      if (generation == _sessionGeneration &&
+          (currentRide == null || currentRide?.ride?.sId == rideId)) {
+        isCancellingRide = false;
+      }
     }
   }
 
   @action
   Future<void> updateDriverMarkers() async {
+    final epoch = _rideVisualEpoch;
     // Remove existing driver markers
     markers =
         markers.where((m) => !m.markerId.value.startsWith('driver_')).toSet();
 
     // Add current driver markers
-    for (var driver in nearbyDrivers.values) {
+    for (var driver in nearbyDrivers.values.toList()) {
       final BitmapDescriptor icon = await createAssetMarker(
         Assets.taxiIc,
         height: 150,
@@ -1214,6 +1685,7 @@ abstract class MapStoreBase with Store {
                 : InfoWindow.noText,
       );
 
+      if (epoch != _rideVisualEpoch) return;
       markers = {...markers, marker};
     }
   }
@@ -1275,14 +1747,16 @@ abstract class MapStoreBase with Store {
 
   @action
   Future<void> getAllRide() async {
+    final generation = _sessionGeneration;
     try {
       isRideHistoryLoading = true;
       final rides = await _rideService.getRides();
+      if (generation != _sessionGeneration) return;
       rideHistory = rides.rides;
     } catch (e) {
       log('Error getting rides: $e');
     } finally {
-      isRideHistoryLoading = false;
+      if (generation == _sessionGeneration) isRideHistoryLoading = false;
     }
   }
 
@@ -1320,37 +1794,45 @@ abstract class MapStoreBase with Store {
 
   @action
   Future<void> getCurrentRide() async {
-    try {
-      isCreatingRide = true;
-      currentRide = await _rideService.getCurrentRides();
-      if (currentRide != null && currentRide!.ride != null) {
-        isRideAccepted = true;
-        final pickupLocation = LatLng(
-          currentRide!.ride!.pickup!.latitude!,
-          currentRide!.ride!.pickup!.longitude!,
-        );
-        final dropLocation = LatLng(
-          currentRide!.ride!.destination!.latitude!,
-          currentRide!.ride!.destination!.longitude!,
-        );
-        await _calculateRoute(pickupLocation, dropLocation);
-        await _addPickupMarker(pickupLocation);
-        await _addDestinationMarker(dropLocation);
-      } else {
-        isRideAccepted = false;
-      }
-    } catch (e) {
-      log('Error getting current ride: $e');
-    } finally {
-      isCreatingRide = false;
-    }
+    await recovery.refresh();
   }
 
   void dispose() {
+    for (final service in _safetySessions.toList()) {
+      service.endSession();
+    }
+    _sessionStarted = false;
+    _sessionGeneration++;
+    for (final session in _quoteSessions) {
+      session.dispose();
+    }
+    _quoteSessions.clear();
+    _quoteSessionIdentity = null;
+    _quoteToken = null;
+    ratings.reset();
+    _feedbackBusy.value = false;
+    _chatRead++;
+    chat.reset();
+    clearTyping();
+    recovery.dispose();
+    booking.dispose();
+    runInAction(() => searchBusy.value = false);
     _socketService.dispose();
+    _clearRideState();
+    _closedRideIds.clear();
+    isConnected = false;
+    error = null;
     stopLocationTracking();
-    currentLocationController.dispose();
-    designationController.dispose();
+    currentLocationController.clear();
+    designationController.clear();
+    selectedSuggestionsFrom = null;
+    selectedSuggestionsTo = null;
+    userLocation = null;
+    _lastPosition = null;
+    rideHistory = [];
+    isRideHistoryLoading = false;
+    prices.clear();
+    selectedPrice = null;
     coordinatesList.clear();
     tempCoordinatesList.clear();
     nearbyDrivers.clear();

@@ -1,26 +1,15 @@
+import '../../ride_participant.dart';
 import 'package:ridzs_passenger_app/core/enums/ride.dart';
 
-double _asDouble(dynamic value, [double fallback = 0]) {
-  if (value is num) return value.toDouble();
-  return double.tryParse(value?.toString() ?? '') ?? fallback;
-}
+double _asDouble(dynamic value, [double fallback = 0]) =>
+    rideNumber(value) ?? fallback;
 
-double? _asNullableDouble(dynamic value) {
-  if (value == null) return null;
-  if (value is num) return value.toDouble();
-  return double.tryParse(value.toString());
-}
+double? _asNullableDouble(dynamic value) => rideNumber(value);
 
-int? _asNullableInt(dynamic value) {
-  if (value == null) return null;
-  if (value is num) return value.toInt();
-  return int.tryParse(value.toString());
-}
+int? _asNullableInt(dynamic value) => rideInteger(value);
 
-int _asInt(dynamic value, [int fallback = 0]) {
-  if (value is num) return value.toInt();
-  return int.tryParse(value?.toString() ?? '') ?? fallback;
-}
+int _asInt(dynamic value, [int fallback = 0]) =>
+    rideNumber(value)?.round() ?? fallback;
 
 class RideRequest {
   RideResponse? ride;
@@ -30,6 +19,33 @@ class RideRequest {
   String? driverName;
   String? driverPhoto;
   String? driverNumber;
+  RideParticipant? participant;
+  RideVehicle? vehicle;
+
+  Uri? get contactUri => rideContactUri(
+      ride?.status?.title, driverNumber, participant?.canCall ?? true);
+  String get participantLabel =>
+      (driverName?.trim().isNotEmpty ?? false) ? driverName!.trim() : 'Driver';
+
+  void mergeDisplayFrom(RideRequest? previous) {
+    if (previous == null ||
+        previous.ride?.sId != ride?.sId ||
+        rideText(previous.ride?.driverId) != rideText(ride?.driverId)) {
+      return;
+    }
+    if (participant == null) {
+      participant = previous.participant;
+      driverName =
+          (driverName?.isNotEmpty ?? false) ? driverName : previous.driverName;
+      driverPhoto = (driverPhoto?.isNotEmpty ?? false)
+          ? driverPhoto
+          : previous.driverPhoto;
+      driverNumber = (driverNumber?.isNotEmpty ?? false)
+          ? driverNumber
+          : previous.driverNumber;
+    }
+    vehicle ??= previous.vehicle;
+  }
 
   RideRequest({
     this.ride,
@@ -55,6 +71,25 @@ class RideRequest {
     driverNumber =
         (json['driverMobileNumber'] ?? json['driverNumber'] ?? '').toString();
     driverPhoto = (json['driverPhoto'] ?? '').toString();
+    final snapshot = json['ride'];
+    if (snapshot is Map && snapshot.containsKey('participant')) {
+      final value = snapshot['participant'];
+      participant =
+          RideParticipant.fromJson(value is Map ? value : {'role': 'driver'});
+      if (value is Map &&
+          (participant!.role != 'driver' ||
+              (participant!.id.isNotEmpty &&
+                  participant!.id != ride?.driverId))) {
+        throw const FormatException('Participant does not match ride');
+      }
+      driverName = participant!.displayName;
+      driverPhoto = participant!.photoUrl;
+      driverNumber = participant!.canCall ? participant!.phoneNumber : '';
+    }
+    if (snapshot is Map && snapshot.containsKey('vehicle')) {
+      final value = snapshot['vehicle'];
+      vehicle = RideVehicle.fromJson(value is Map ? value : {});
+    }
   }
 
   factory RideRequest.unknown() {
@@ -80,6 +115,12 @@ class RideRequest {
     data['driverName'] = driverName;
     data['driverMobileNumber'] = driverNumber;
     data['driverPhoto'] = driverPhoto;
+    if (data['ride'] is Map) {
+      if (participant != null) {
+        data['ride']['participant'] = participant!.toJson();
+      }
+      if (vehicle != null) data['ride']['vehicle'] = vehicle!.toJson();
+    }
     return data;
   }
 }
@@ -102,6 +143,9 @@ class RideResponse {
   String? createdAt;
   String? updatedAt;
   int? iV;
+  int? version;
+  Map<String, dynamic>? cancellation;
+  Map<String, dynamic>? dispatch;
   String? passengerName;
   String? passengerPhoto;
 
@@ -125,6 +169,8 @@ class RideResponse {
     this.passengerPhoto,
     this.updatedAt,
     this.iV,
+    this.version,
+    this.cancellation,
   });
 
   RideResponse.fromJson(Map<String, dynamic> json) {
@@ -138,7 +184,14 @@ class RideResponse {
         ? LocationDetails.fromJson(
             Map<String, dynamic>.from(json['destination'] as Map))
         : null;
-    status = RideStatus.fromString(json['status'] ?? 'cancelled');
+    status = RideStatus.fromString((json['status'] ?? '').toString());
+    version = _asNullableInt(json['version']);
+    dispatch = json['dispatch'] is Map
+        ? Map<String, dynamic>.from(json['dispatch'])
+        : null;
+    cancellation = json['cancellation'] is Map
+        ? Map<String, dynamic>.from(json['cancellation'])
+        : null;
     distanceInKm = _asDouble(json['distanceInKm']);
     estimatedTimeInMinutes = _asInt(json['estimatedTimeInMinutes']);
     waitingTimeInMinutes = _asInt(json['waitingTimeInMinutes']);
@@ -226,6 +279,9 @@ class RideResponse {
   Map<String, dynamic> toJson() {
     final Map<String, dynamic> data = <String, dynamic>{};
     data['passengerId'] = passengerId;
+    data['version'] = version;
+    data['cancellation'] = cancellation;
+    data['dispatch'] = dispatch;
     data['vehicleType'] = vehicleType;
     if (pickup != null) {
       data['pickup'] = pickup!.toJson();
@@ -409,7 +465,7 @@ class Route {
 
   Route.fromJson(Map<String, dynamic> json) {
     final rawWaypoints = (json['waypoints'] as List?) ?? <dynamic>[];
-    waypoints = rawWaypoints.map((e) => _asDouble(e)).toList();
+    waypoints = rawWaypoints.map(rideNumber).whereType<double>().toList();
     encoded = (json['encoded'] ?? '').toString();
   }
 
@@ -422,17 +478,34 @@ class Route {
 }
 
 class Timestamps {
+  String? accepted, arrived, started, completed, cancelled;
   String? requested;
 
-  Timestamps({this.requested});
+  Timestamps(
+      {this.requested,
+      this.accepted,
+      this.arrived,
+      this.started,
+      this.completed,
+      this.cancelled});
 
   Timestamps.fromJson(Map<String, dynamic> json) {
     requested = (json['requested'] ?? '').toString();
+    accepted = json['accepted'] is String ? json['accepted'] : null;
+    arrived = json['arrived'] is String ? json['arrived'] : null;
+    started = json['started'] is String ? json['started'] : null;
+    completed = json['completed'] is String ? json['completed'] : null;
+    cancelled = json['cancelled'] is String ? json['cancelled'] : null;
   }
 
   Map<String, dynamic> toJson() {
     final Map<String, dynamic> data = <String, dynamic>{};
     data['requested'] = requested;
+    data['accepted'] = accepted;
+    data['arrived'] = arrived;
+    data['started'] = started;
+    data['completed'] = completed;
+    data['cancelled'] = cancelled;
     return data;
   }
 }

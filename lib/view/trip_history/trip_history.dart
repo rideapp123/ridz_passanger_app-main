@@ -1,4 +1,6 @@
+import '../legal/ride_documents_screen.dart';
 import 'package:flutter_mobx/flutter_mobx.dart';
+import '../safety/ride_safety_screen.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:ridzs_passenger_app/core/constants/extension.dart';
@@ -182,7 +184,12 @@ class TripHistory extends HookWidget {
                                             children: [
                                               //
                                               Text(
-                                                ride.driverInfo?.name ?? 'N/A',
+                                                (ride.driverInfo?.name
+                                                            .trim()
+                                                            .isNotEmpty ??
+                                                        false)
+                                                    ? ride.driverInfo!.name
+                                                    : 'Driver unavailable',
                                                 style: TextStyle(
                                                   fontSize: 14,
                                                   fontWeight: FontWeight.w600,
@@ -291,6 +298,15 @@ class TripHistory extends HookWidget {
                               spacing: 6,
                               runSpacing: 2,
                               children: [
+                                RideDocumentsButton(rideId: ride.id),
+                                TextButton.icon(
+                                    onPressed: () => openRideSafety(
+                                        context,
+                                        ride.id,
+                                        mapStore.createSafetySession()),
+                                    icon: const Icon(
+                                        Icons.health_and_safety_outlined),
+                                    label: const Text('Safety report')),
                                 if (ride.payment.needsRecovery)
                                   TextButton.icon(
                                     onPressed: () {

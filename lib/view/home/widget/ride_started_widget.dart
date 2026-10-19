@@ -1,3 +1,4 @@
+import 'ride_participant_header.dart';
 import 'package:ridzs_passenger_app/core/exports/common_exports.dart';
 import 'package:ridzs_passenger_app/models/common/ride_response/ride_response.dart';
 import 'package:ridzs_passenger_app/stores/map/map_store.dart';
@@ -102,124 +103,11 @@ class RideStartedWidget extends HookWidget {
 
           SizedBox(height: SizeConfig.screenHeight * 0.02),
 
-          Row(
-            children: [
-              //
-              if ((rideRequest?.driverPhoto ?? '').isEmpty)
-                Container(
-                  height: SizeConfig.screenHeight * 0.1,
-                  width: SizeConfig.screenHeight * 0.1,
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surfaceContainer,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.person,
-                    color: Theme.of(context).colorScheme.secondary,
-                    size: 52,
-                  ),
-                )
-              else
-                ClipOval(
-                  child: CustomImageView(
-                    url: rideRequest?.driverPhoto,
-                    height: SizeConfig.screenHeight * 0.1,
-                    width: SizeConfig.screenHeight * 0.1,
-                    fit: BoxFit.cover,
-                  ),
-                ),
-
-              SizedBox(width: SizeConfig.screenWidth * 0.02),
-
-              Expanded(
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Column(
-                      mainAxisAlignment: MainAxisAlignment.start,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        //
-                        Text(
-                          rideRequest!.driverName!,
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: Theme.of(context).colorScheme.onPrimary,
-                          ),
-                        ),
-
-                        Text(
-                          'Kia Soul LX',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w400,
-                            color:
-                                Theme.of(context).colorScheme.tertiaryContainer,
-                          ),
-                        ),
-
-                        SizedBox(height: SizeConfig.screenHeight * 0.01),
-
-                        Text(
-                          'HSW 4736 XK',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: Theme.of(context).colorScheme.onPrimary,
-                          ),
-                        ),
-                      ],
-                    ),
-
-                    //
-                    Column(
-                      mainAxisAlignment: MainAxisAlignment.start,
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        //
-                        SizedBox(
-                          height: SizeConfig.screenHeight * 0.07,
-                          width: SizeConfig.screenHeight * 0.07,
-                          child: Stack(
-                            alignment: Alignment.center,
-                            children: [
-                              //
-                              CustomImageView(
-                                svgPath: Assets.starIc,
-                                height: SizeConfig.screenHeight * 0.07,
-                                width: SizeConfig.screenHeight * 0.07,
-                              ),
-
-                              Text(
-                                '4.8',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w400,
-                                  color:
-                                      Theme.of(context).colorScheme.onPrimary,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-
-                        Text(
-                          'Overall rating',
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.onTertiary,
-                            fontSize: 10,
-                            fontWeight: FontWeight.w400,
-                          ),
-                        )
-                      ],
-                    )
-                  ],
-                ),
-              ),
-            ],
-          ),
+          RideParticipantHeader(
+              rideRequest: rideRequest,
+              name: rideRequest?.participantLabel ?? 'Driver',
+              photoUrl: rideRequest?.driverPhoto,
+              vehicle: rideRequest?.vehicle),
 
           SizedBox(height: SizeConfig.screenHeight * 0.02),
 
@@ -366,8 +254,10 @@ class RideStartedWidget extends HookWidget {
               // );
             },
             text: 'Edit Destination',
-            shadowColor:
-                Theme.of(context).colorScheme.surfaceContainer.withValues(alpha: .1),
+            shadowColor: Theme.of(context)
+                .colorScheme
+                .surfaceContainer
+                .withValues(alpha: .1),
             showShadow: false,
             textColor: Theme.of(context).colorScheme.onPrimary,
           ),
